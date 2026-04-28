@@ -1,0 +1,47 @@
+version: '3.9'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: planta_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:-planta_user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-planta_pass}
+      POSTGRES_DB: ${DB_NAME:-planta_mantenimiento}
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${DB_USER:-planta_user}']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build: ./backend
+    container_name: planta_backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${DB_USER:-planta_user}:${DB_PASSWORD:-planta_pass}@postgres:5432/${DB_NAME:-planta_mantenimiento}
+      JWT_SECRET: ${JWT_SECRET:-change_this_secret_in_production}
+      PORT: 4000
+      NODE_ENV: production
+    ports:
+      - '4000:4000'
+
+  frontend:
+    build: ./frontend
+    container_name: planta_frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - '80:80'
+
+volumes:
+  postgres_data:
