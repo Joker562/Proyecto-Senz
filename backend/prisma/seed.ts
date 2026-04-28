@@ -112,6 +112,22 @@ async function main() {
     ],
   });
 
+  // ── Áreas de planta ──────────────────────────────────────────────────────
+  const areaNames = [
+    'Corte', 'Ensamble', 'Pintura', 'Almacén', 'Calidad',
+    'Mantenimiento', 'Logística', 'Producción General',
+  ];
+  const areaMap: Record<string, string> = {}; // name → id
+  for (const name of areaNames) {
+    const a = await prisma.area.upsert({
+      where: { name },
+      update: {},
+      create: { name },
+    });
+    areaMap[name] = a.id;
+  }
+  console.log('✅ Áreas creadas:', Object.keys(areaMap).join(', '));
+
   // ── Plantillas de Auditoría ──────────────────────────────────────────────
   const templateCount = await prisma.auditTemplate.count();
   if (templateCount === 0) {
@@ -287,6 +303,227 @@ async function main() {
     });
 
     console.log('✅ Plantillas de auditoría creadas');
+  }
+
+  // ── Auditorías de demostración ────────────────────────────────────────────
+  const auditCount = await prisma.audit.count();
+  if (auditCount === 0) {
+    const [template5S, templateProc] = await Promise.all([
+      prisma.auditTemplate.findFirst({ where: { type: 'FIVE_S' }, include: { sections: { include: { items: true }, orderBy: { order: 'asc' } } } }),
+      prisma.auditTemplate.findFirst({ where: { type: 'PROCESS' }, include: { sections: { include: { items: true }, orderBy: { order: 'asc' } } } }),
+    ]);
+
+    const supervisor = await prisma.user.findFirst({ where: { role: 'SUPERVISOR' } });
+    const tecnico    = await prisma.user.findFirst({ where: { role: 'TECHNICIAN' } });
+    const admin2     = await prisma.user.findFirst({ where: { role: 'ADMIN' } });
+    if (!supervisor || !tecnico || !admin2 || !template5S || !templateProc) {
+      console.log('⚠️  Faltan usuarios o plantillas para seed de auditorías');
+    } else {
+      // Helper: crea los ítems de una sección con resultados dados
+      type ItemResult = 'PASS' | 'FAIL' | 'NA';
+      type SeedSection = { name: string; isBehavior: boolean; weight: number; items: { description: string; weight: number; order: number }[] };
+
+      function buildSections(template: NonNullable<typeof template5S>, results: ItemResult[][]): object[] {
+        return template.sections.map((sec, si) => ({
+          order: sec.order,
+          name: sec.name,
+          isBehavior: sec.isBehavior,
+          weight: sec.weight,
+          items: {
+            create: sec.items.map((item, ii) => ({
+              order: item.order,
+              description: item.description,
+              weight: item.weight,
+              result: (results[si]?.[ii]) ?? 'PASS',
+              checkedAt: new Date(),
+              checkedById: supervisor.id,
+            })),
+          },
+        }));
+      }
+
+      // Función para calcular score igual que el backend
+      function calcScore(template: NonNullable<typeof template5S>, results: ItemResult[][]): number {
+        let weightedSum = 0, totalWeight = 0;
+        template.sections.forEach((sec, si) => {
+          sec.items.forEach((item, ii) => {
+            const r = results[si]?.[ii] ?? 'PASS';
+            if (r === 'NA') return;
+            const secW = sec.weight, itemW = item.weight;
+            totalWeight += secW * itemW;
+            if (r === 'PASS') weightedSum += secW * itemW;
+          });
+        });
+        return totalWeight > 0 ? Math.round(weightedSum / totalWeight * 100 * 10) / 10 : 0;
+      }
+
+      // ── Datos: [área, tipo de template, resultados por sección, mes atrás] ─
+      const auditDefs: Array<{
+        area: string; template: NonNullable<typeof template5S>;
+        results: ItemResult[][]; monthsAgo: number; auditorId: string;
+      }> = [
+        // Últimos 6 meses — Corte (5S, mejora progresiva)
+        { area: 'Corte', template: template5S,  auditorId: supervisor.id, monthsAgo: 5,
+          results: [['PASS','PASS','FAIL','PASS','FAIL'],['PASS','FAIL','PASS','PASS','FAIL'],['PASS','PASS','PASS','FAIL','PASS'],['FAIL','FAIL','PASS','PASS','PASS'],['PASS','PASS','FAIL','PASS','PASS'],['PASS','FAIL','PASS','PASS','PASS']] },
+        { area: 'Corte', template: template5S,  auditorId: supervisor.id, monthsAgo: 4,
+          results: [['PASS','PASS','PASS','PASS','FAIL'],['PASS','PASS','PASS','PASS','FAIL'],['PASS','PASS','PASS','FAIL','PASS'],['PASS','FAIL','PASS','PASS','PASS'],['PASS','PASS','PASS','PASS','PASS'],['PASS','FAIL','PASS','PASS','PASS']] },
+        { area: 'Corte', template: template5S,  auditorId: supervisor.id, monthsAgo: 3,
+          results: [['PASS','PASS','PASS','PASS','PASS'],['PASS','PASS','PASS','PASS','FAIL'],['PASS','PASS','PASS','PASS','PASS'],['PASS','PASS','PASS','PASS','PASS'],['PASS','PASS','PASS','PASS','PASS'],['PASS','PASS','PASS','PASS','PASS']] },
+        { area: 'Corte', template: template5S,  auditorId: supervisor.id, monthsAgo: 2,
+          results: [['PASS','PASS','PASS','PASS','PASS'],['PASS','PASS','PASS','PASS','PASS'],['PASS','PASS','PASS','PASS','PASS'],['PASS','PASS','PASS','PASS','FAIL'],['PASS','PASS','PASS','PASS','PASS'],['PASS','PASS','PASS','PASS','PASS']] },
+        { area: 'Corte', template: template5S,  auditorId: supervisor.id, monthsAgo: 1,
+          results: [['PASS','PASS','PASS','PASS','PASS'],['PASS','PASS','PASS','PASS','PASS'],['PASS','PASS','PASS','PASS','PASS'],['PASS','PASS','PASS','PASS','PASS'],['PASS','PASS','PASS','PASS','PASS'],['PASS','PASS','PASS','PASS','PASS']] },
+        { area: 'Corte', template: template5S,  auditorId: supervisor.id, monthsAgo: 0,
+          results: [['PASS','PASS','PASS','PASS','PASS'],['PASS','PASS','PASS','PASS','PASS'],['PASS','PASS','PASS','PASS','PASS'],['PASS','PASS','PASS','PASS','PASS'],['PASS','PASS','PASS','PASS','PASS'],['PASS','PASS','PASS','PASS','PASS']] },
+
+        // Últimos 6 meses — Ensamble (5S, irregular)
+        { area: 'Ensamble', template: template5S, auditorId: supervisor.id, monthsAgo: 5,
+          results: [['PASS','FAIL','FAIL','PASS','FAIL'],['FAIL','FAIL','PASS','PASS','FAIL'],['PASS','PASS','FAIL','FAIL','PASS'],['FAIL','FAIL','FAIL','PASS','PASS'],['PASS','PASS','FAIL','PASS','FAIL'],['PASS','FAIL','FAIL','PASS','PASS']] },
+        { area: 'Ensamble', template: template5S, auditorId: supervisor.id, monthsAgo: 4,
+          results: [['PASS','PASS','FAIL','PASS','FAIL'],['PASS','FAIL','PASS','PASS','FAIL'],['PASS','PASS','PASS','FAIL','PASS'],['PASS','FAIL','PASS','PASS','PASS'],['PASS','PASS','PASS','FAIL','PASS'],['PASS','FAIL','PASS','PASS','PASS']] },
+        { area: 'Ensamble', template: template5S, auditorId: tecnico.id, monthsAgo: 3,
+          results: [['PASS','PASS','PASS','FAIL','FAIL'],['PASS','PASS','FAIL','PASS','PASS'],['PASS','PASS','PASS','PASS','PASS'],['PASS','PASS','FAIL','PASS','PASS'],['PASS','PASS','PASS','FAIL','PASS'],['PASS','PASS','FAIL','PASS','PASS']] },
+        { area: 'Ensamble', template: template5S, auditorId: tecnico.id, monthsAgo: 2,
+          results: [['PASS','PASS','PASS','PASS','FAIL'],['PASS','PASS','PASS','FAIL','PASS'],['PASS','PASS','PASS','PASS','PASS'],['PASS','PASS','PASS','PASS','PASS'],['PASS','PASS','PASS','PASS','PASS'],['PASS','PASS','FAIL','PASS','PASS']] },
+        { area: 'Ensamble', template: template5S, auditorId: supervisor.id, monthsAgo: 1,
+          results: [['PASS','PASS','PASS','PASS','PASS'],['PASS','PASS','PASS','PASS','PASS'],['PASS','PASS','PASS','PASS','FAIL'],['PASS','PASS','PASS','PASS','PASS'],['PASS','PASS','PASS','PASS','PASS'],['PASS','PASS','PASS','PASS','PASS']] },
+        { area: 'Ensamble', template: template5S, auditorId: supervisor.id, monthsAgo: 0,
+          results: [['PASS','PASS','PASS','PASS','PASS'],['PASS','PASS','PASS','PASS','FAIL'],['PASS','PASS','PASS','PASS','PASS'],['PASS','PASS','PASS','PASS','PASS'],['PASS','PASS','PASS','PASS','PASS'],['PASS','PASS','PASS','PASS','PASS']] },
+
+        // Pintura (Procesos, con algunos fallos)
+        { area: 'Pintura', template: templateProc, auditorId: tecnico.id, monthsAgo: 4,
+          results: [['PASS','PASS','FAIL','PASS','PASS'],['PASS','FAIL','PASS','PASS','PASS'],['PASS','PASS','PASS','FAIL','PASS'],['PASS','PASS','PASS','PASS','PASS'],['PASS','PASS','FAIL','PASS','PASS'],['PASS','PASS','PASS','PASS','PASS']] },
+        { area: 'Pintura', template: templateProc, auditorId: tecnico.id, monthsAgo: 2,
+          results: [['PASS','PASS','PASS','PASS','PASS'],['PASS','PASS','PASS','FAIL','PASS'],['PASS','PASS','PASS','PASS','PASS'],['PASS','PASS','PASS','PASS','FAIL'],['PASS','PASS','PASS','PASS','PASS'],['PASS','PASS','PASS','PASS','PASS']] },
+        { area: 'Pintura', template: templateProc, auditorId: supervisor.id, monthsAgo: 0,
+          results: [['PASS','PASS','PASS','PASS','PASS'],['PASS','PASS','PASS','PASS','PASS'],['PASS','PASS','PASS','PASS','PASS'],['PASS','PASS','PASS','PASS','PASS'],['PASS','PASS','PASS','PASS','PASS'],['PASS','PASS','PASS','PASS','PASS']] },
+
+        // Almacén (5S, mediocre)
+        { area: 'Almacén', template: template5S, auditorId: supervisor.id, monthsAgo: 3,
+          results: [['PASS','FAIL','FAIL','PASS','FAIL'],['FAIL','PASS','PASS','FAIL','FAIL'],['PASS','FAIL','PASS','FAIL','PASS'],['FAIL','FAIL','PASS','PASS','FAIL'],['PASS','FAIL','PASS','FAIL','PASS'],['PASS','FAIL','FAIL','PASS','PASS']] },
+        { area: 'Almacén', template: template5S, auditorId: supervisor.id, monthsAgo: 1,
+          results: [['PASS','PASS','FAIL','PASS','FAIL'],['PASS','FAIL','PASS','PASS','FAIL'],['PASS','PASS','FAIL','PASS','PASS'],['PASS','FAIL','PASS','PASS','PASS'],['PASS','PASS','FAIL','PASS','PASS'],['PASS','FAIL','PASS','PASS','PASS']] },
+
+        // Calidad (Procesos, excelente)
+        { area: 'Calidad', template: templateProc, auditorId: supervisor.id, monthsAgo: 2,
+          results: [['PASS','PASS','PASS','PASS','PASS'],['PASS','PASS','PASS','PASS','PASS'],['PASS','PASS','PASS','PASS','PASS'],['PASS','PASS','PASS','PASS','PASS'],['PASS','PASS','PASS','PASS','PASS'],['PASS','PASS','PASS','PASS','FAIL']] },
+        { area: 'Calidad', template: templateProc, auditorId: supervisor.id, monthsAgo: 0,
+          results: [['PASS','PASS','PASS','PASS','PASS'],['PASS','PASS','PASS','PASS','PASS'],['PASS','PASS','PASS','PASS','PASS'],['PASS','PASS','PASS','PASS','PASS'],['PASS','PASS','PASS','PASS','PASS'],['PASS','PASS','PASS','PASS','PASS']] },
+      ];
+
+      let auditSeq = 1;
+      const createdAudits: { id: string; area: string; sections: any[] }[] = [];
+
+      for (const def of auditDefs) {
+        const completedDate = new Date();
+        completedDate.setMonth(completedDate.getMonth() - def.monthsAgo);
+        completedDate.setDate(12 + Math.floor(Math.random() * 10));
+        completedDate.setHours(9, 30, 0, 0);
+
+        const score = calcScore(def.template, def.results);
+        const code  = `AUD-${String(auditSeq++).padStart(4, '0')}`;
+        const typeLabel = def.template.type === 'FIVE_S' ? '5S' : 'Proc';
+
+        const created = await prisma.audit.create({
+          data: {
+            code,
+            title: `Auditoría ${typeLabel} — ${def.area}`,
+            type: def.template.type as 'FIVE_S' | 'PROCESS',
+            status: 'CLOSED',
+            area: def.area,
+            score,
+            scheduledAt: completedDate,
+            startedAt: completedDate,
+            completedAt: completedDate,
+            auditorId: def.auditorId,
+            templateId: def.template.id,
+            sections: {
+              create: buildSections(def.template, def.results) as any,
+            },
+          },
+          include: { sections: { include: { items: true } } },
+        });
+
+        createdAudits.push({ id: created.id, area: def.area, sections: created.sections });
+      }
+
+      console.log(`✅ ${createdAudits.length} auditorías creadas`);
+
+      // ── CAPAs asociadas a las auditorías con FAILs ────────────────────────
+      let capaSeq = 1;
+      const capaData = [
+        // CAPAs del área Ensamble (mes -5, puntaje bajo)
+        { auditIdx: 6, severity: 'CRITICAL', type: 'CORRECTIVE', status: 'CLOSED', daysAgo: 150, assignedId: tecnico.id,
+          desc: 'Retirar material obsoleto acumulado en zona de ensamble línea 2',
+          rootCause: 'Falta de rutina de clasificación semanal en área de ensamble.',
+          closingNotes: 'Se estableció programa semanal de clasificación 5S. Material retirado y catalogado.' },
+        { auditIdx: 6, severity: 'MAJOR', type: 'CORRECTIVE', status: 'CLOSED', daysAgo: 145, assignedId: tecnico.id,
+          desc: 'Reasignar ubicaciones de herramientas con gestión visual (sombras y etiquetas)',
+          rootCause: 'No existían ubicaciones fijas definidas para herramientas de ensamble.',
+          closingNotes: 'Tablero de sombras instalado. Todas las herramientas tienen ubicación asignada.' },
+        { auditIdx: 7, severity: 'MAJOR', type: 'CORRECTIVE', status: 'CLOSED', daysAgo: 115, assignedId: supervisor.id,
+          desc: 'Actualizar procedimiento de limpieza turno noche — ensamble',
+          rootCause: 'El procedimiento no especificaba responsable de limpieza en turno noche.',
+          closingNotes: 'Procedimiento actualizado. Responsable de turno firmó compromiso.' },
+        // CAPAs del área Almacén (mes -3, puntaje bajo)
+        { auditIdx: 15, severity: 'CRITICAL', type: 'CORRECTIVE', status: 'IN_PROGRESS', daysAgo: 5, assignedId: tecnico.id,
+          desc: 'Limpiar y reorganizar zona de recepción: pasillos bloqueados por tarimas',
+          rootCause: 'No existe procedimiento de ingreso y acomodo de recepción de materiales.' },
+        { auditIdx: 15, severity: 'MAJOR', type: 'CORRECTIVE', status: 'OPEN', daysAgo: -10, assignedId: tecnico.id,
+          desc: 'Instalar señalización de pasillos y zonas de tráfico en almacén',
+          rootCause: 'El almacén no cuenta con demarcación de áreas ni señalización de flujo.' },
+        { auditIdx: 15, severity: 'MINOR', type: 'PREVENTIVE', status: 'OPEN', daysAgo: 20, assignedId: supervisor.id,
+          desc: 'Implementar tarjetas rojas para identificar artículos sin clasificar en almacén',
+          rootCause: 'No se aplica metodología 5S de forma sistemática en el almacén.' },
+        // CAPAs de Ensamble recientes (mes -1)
+        { auditIdx: 11, severity: 'MINOR', type: 'PREVENTIVE', status: 'PENDING_VERIFICATION', daysAgo: 15, assignedId: supervisor.id,
+          desc: 'Actualizar estándar visual de limpieza para turno nocturno — ensamble',
+          rootCause: 'El estándar existente no contempla el turno nocturno.' },
+        { auditIdx: 11, severity: 'OBSERVATION', type: 'PREVENTIVE', status: 'OPEN', daysAgo: -5, assignedId: tecnico.id,
+          desc: 'Colocar recordatorio visual de EPP en entrada del área de ensamble',
+          rootCause: 'Observación en auditoría: algunos operadores no usan lentes de seguridad.' },
+        // CAPAs de Corte (mes -5)
+        { auditIdx: 0, severity: 'MAJOR', type: 'CORRECTIVE', status: 'CLOSED', daysAgo: 155, assignedId: supervisor.id,
+          desc: 'Rediseñar zona de materiales en proceso — área de corte',
+          rootCause: 'Materiales en proceso no tenían ubicación definida, generando desorden.',
+          closingNotes: 'Área rediseñada con marcas en piso y estantes identificados.' },
+      ];
+
+      for (const c of capaData) {
+        const audit = createdAudits[c.auditIdx];
+        if (!audit) continue;
+
+        // Encuentra el primer ítem FAIL en el audit para asociar la CAPA
+        let failItemId: string | undefined;
+        for (const sec of audit.sections) {
+          const failItem = (sec as any).items?.find((i: any) => i.result === 'FAIL');
+          if (failItem) { failItemId = failItem.id; break; }
+        }
+
+        const dueDate = new Date();
+        dueDate.setDate(dueDate.getDate() + c.daysAgo);
+
+        await prisma.capaAction.create({
+          data: {
+            code: `CAPA-${String(capaSeq++).padStart(4, '0')}`,
+            type: c.type as 'CORRECTIVE' | 'PREVENTIVE',
+            description: c.desc,
+            rootCause: c.rootCause ?? null,
+            severity: c.severity as 'CRITICAL' | 'MAJOR' | 'MINOR' | 'OBSERVATION',
+            status: c.status as 'OPEN' | 'IN_PROGRESS' | 'PENDING_VERIFICATION' | 'CLOSED',
+            dueDate,
+            closedAt: c.status === 'CLOSED' ? new Date(dueDate.getTime() - 5 * 86400000) : null,
+            closingNotes: c.closingNotes ?? null,
+            auditId: audit.id,
+            auditItemId: failItemId ?? null,
+            assignedToId: c.assignedId,
+            createdById: admin2.id,
+          },
+        });
+      }
+
+      console.log(`✅ ${capaSeq - 1} CAPAs creadas`);
+    }
   }
 
   console.log('✅ Seed completado');

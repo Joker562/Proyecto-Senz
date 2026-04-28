@@ -2,7 +2,7 @@ import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, ClipboardList, Factory, Calendar, Users, LogOut, Menu, X,
   CalendarDays, CheckSquare, Settings, Wrench, Car, BarChart3, ClipboardCheck,
-  Truck, AlertTriangle, ClipboardX, FileText,
+  Truck, AlertTriangle, ClipboardX, FileText, TrendingUp,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/hooks/useAuth';
@@ -60,9 +60,11 @@ const NAV_BY_MODULE: Record<ModuleId, NavItemDef[]> = {
     { to: '/oee/downtime', icon: AlertTriangle, label: 'Paros',     fullLabel: 'Eventos de Paro' },
   ],
   audits: [
-    { to: '/audits',           icon: ClipboardCheck, label: 'Auditorías', fullLabel: 'Auditorías',  exact: true },
-    { to: '/audits/findings',  icon: ClipboardX,     label: 'Hallazgos',  fullLabel: 'Hallazgos' },
-    { to: '/audits/templates', icon: FileText,       label: 'Plantillas', fullLabel: 'Plantillas' },
+    { to: '/audits',                    icon: ClipboardCheck, label: 'Auditorías', fullLabel: 'Auditorías',  exact: true },
+    { to: '/audits/findings',           icon: ClipboardX,     label: 'Hallazgos',  fullLabel: 'Hallazgos' },
+    { to: '/audits/templates',          icon: FileText,       label: 'Plantillas', fullLabel: 'Plantillas' },
+    { to: '/audits/reports/capas',      icon: AlertTriangle,  label: 'Rep. CAPAs', fullLabel: 'Reporte CAPAs' },
+    { to: '/audits/reports/monthly',    icon: TrendingUp,     label: 'Mensual',    fullLabel: 'Cumplimiento Mensual' },
   ],
 };
 

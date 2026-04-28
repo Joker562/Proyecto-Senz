@@ -18,6 +18,9 @@ import PlaceholderPage from '@/pages/PlaceholderPage';
 import AuditsPage from '@/pages/AuditsPage';
 import AuditDetailPage from '@/pages/AuditDetailPage';
 import AuditFindingsPage from '@/pages/AuditFindingsPage';
+import AuditTemplatesPage from '@/pages/AuditTemplatesPage';
+import ReporteCapasPage from '@/pages/ReporteCapasPage';
+import ReporteMensualPage from '@/pages/ReporteMensualPage';
 import '@/index.css';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -201,9 +204,11 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
 
           {/* Auditorías */}
           <Route path="audits" element={<AuditsPage />} />
-          <Route path="audits/:id" element={<AuditDetailPage />} />
           <Route path="audits/findings" element={<AuditFindingsPage />} />
-          <Route path="audits/templates" element={<AuditsTemplatesPage />} />
+          <Route path="audits/templates" element={<AuditTemplatesPage />} />
+          <Route path="audits/reports/capas" element={<ReporteCapasPage />} />
+          <Route path="audits/reports/monthly" element={<ReporteMensualPage />} />
+          <Route path="audits/:id" element={<AuditDetailPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>

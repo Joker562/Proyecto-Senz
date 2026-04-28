@@ -1,7 +1,32 @@
 import 'dotenv/config';
 import http from 'http';
 import path from 'path';
+import fs from 'fs';
 import express from 'express';
+
+// ── Backup automático del dev.db al iniciar ───────────────────────────────────
+(function backupDb() {
+  try {
+    const src = path.resolve(__dirname, '../../prisma/dev.db');
+    if (!fs.existsSync(src)) return;
+    const backupDir = path.resolve(__dirname, '../../prisma/backups');
+    if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
+    const date = new Date().toISOString().slice(0, 10);
+    const dest = path.join(backupDir, `dev_${date}.db`);
+    if (!fs.existsSync(dest)) {
+      fs.copyFileSync(src, dest);
+      console.log(`💾 Backup DB → backups/dev_${date}.db`);
+    }
+    // Limpia backups de más de 30 días
+    const files = fs.readdirSync(backupDir).filter(f => f.endsWith('.db')).sort();
+    if (files.length > 30) {
+      const old = files.slice(0, files.length - 30);
+      old.forEach(f => fs.unlinkSync(path.join(backupDir, f)));
+    }
+  } catch (e) {
+    console.warn('⚠️  No se pudo hacer backup de la DB:', e);
+  }
+})();
 import cors from 'cors';
 import { setupSocket } from './socket';
 import { startAutoOTCron } from './services/autoOT';

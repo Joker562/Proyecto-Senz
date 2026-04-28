@@ -73,6 +73,7 @@ export interface AuditTemplateItem {
   id: string;
   order: number;
   description: string;
+  weight: number;
 }
 
 export interface AuditTemplateSection {
@@ -80,6 +81,7 @@ export interface AuditTemplateSection {
   order: number;
   name: string;
   isBehavior: boolean;
+  weight: number;
   items: AuditTemplateItem[];
 }
 
@@ -88,13 +90,17 @@ export interface AuditTemplate {
   name: string;
   type: AuditType;
   isDefault: boolean;
+  createdAt: string;
+  updatedAt: string;
   sections: AuditTemplateSection[];
+  _count?: { audits: number };
 }
 
 export interface AuditItem {
   id: string;
   order: number;
   description: string;
+  weight: number;
   result: AuditResult | null;
   notes: string | null;
   checkedAt: string | null;
@@ -107,6 +113,7 @@ export interface AuditSection {
   order: number;
   name: string;
   isBehavior: boolean;
+  weight: number;
   items: AuditItem[];
 }
 

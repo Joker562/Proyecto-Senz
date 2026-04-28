@@ -15,15 +15,12 @@ router.get('/dashboard', async (_req, res) => {
       prisma.capaAction.findMany({ select: { status: true, dueDate: true, severity: true } }),
     ]);
 
-    // Agrupar por estado
     const byStatus: Record<string, number> = {};
     for (const a of allAudits) byStatus[a.status] = (byStatus[a.status] || 0) + 1;
 
-    // Agrupar por tipo
     const byType: Record<string, number> = {};
     for (const a of allAudits) byType[a.type] = (byType[a.type] || 0) + 1;
 
-    // Agrupar por área con puntaje promedio
     const areaMap: Record<string, { count: number; scores: number[] }> = {};
     for (const a of allAudits) {
       if (!areaMap[a.area]) areaMap[a.area] = { count: 0, scores: [] };
@@ -70,11 +67,199 @@ router.get('/templates', async (_req, res) => {
           orderBy: { order: 'asc' },
           include: { items: { orderBy: { order: 'asc' } } },
         },
+        _count: { select: { audits: true } },
       },
+      orderBy: { createdAt: 'asc' },
     });
     res.json(templates);
   } catch (e) {
     res.status(500).json({ error: 'Error al obtener plantillas' });
+  }
+});
+
+// ── POST /templates ────────────────────────────────────────────────────────────
+const templateItemSchema = z.object({
+  description: z.string().min(1),
+  weight: z.number().min(0.1).max(10).default(1),
+});
+
+const templateSectionSchema = z.object({
+  name: z.string().min(1),
+  isBehavior: z.boolean().default(false),
+  weight: z.number().min(0.1).max(10).default(1),
+  items: z.array(templateItemSchema).min(1, 'Cada sección necesita al menos 1 ítem'),
+});
+
+const saveTemplateSchema = z.object({
+  name: z.string().min(2),
+  type: z.enum(['FIVE_S', 'PROCESS']),
+  isDefault: z.boolean().default(false),
+  sections: z.array(templateSectionSchema).min(1, 'La plantilla necesita al menos 1 sección'),
+});
+
+router.post('/templates', authorize('ADMIN', 'SUPERVISOR'), async (req, res) => {
+  const parsed = saveTemplateSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  const { name, type, isDefault, sections } = parsed.data;
+
+  try {
+    // If marking as default, unset previous default for this type
+    if (isDefault) {
+      await prisma.auditTemplate.updateMany({ where: { type, isDefault: true }, data: { isDefault: false } });
+    }
+
+    const template = await prisma.auditTemplate.create({
+      data: {
+        name, type, isDefault,
+        sections: {
+          create: sections.map((s, si) => ({
+            order: si + 1,
+            name: s.name,
+            isBehavior: s.isBehavior,
+            weight: s.weight,
+            items: {
+              create: s.items.map((i, ii) => ({
+                order: ii + 1,
+                description: i.description,
+                weight: i.weight,
+              })),
+            },
+          })),
+        },
+      },
+      include: {
+        sections: {
+          orderBy: { order: 'asc' },
+          include: { items: { orderBy: { order: 'asc' } } },
+        },
+        _count: { select: { audits: true } },
+      },
+    });
+    res.status(201).json(template);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Error al crear plantilla' });
+  }
+});
+
+// ── PUT /templates/:id ─────────────────────────────────────────────────────────
+router.put('/templates/:id', authorize('ADMIN', 'SUPERVISOR'), async (req, res) => {
+  const parsed = saveTemplateSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  const { name, type, isDefault, sections } = parsed.data;
+
+  try {
+    const existing = await prisma.auditTemplate.findUnique({ where: { id: req.params.id } });
+    if (!existing) return res.status(404).json({ error: 'Plantilla no encontrada' });
+
+    if (isDefault) {
+      await prisma.auditTemplate.updateMany({
+        where: { type, isDefault: true, id: { not: req.params.id } },
+        data: { isDefault: false },
+      });
+    }
+
+    // Delete existing sections (items cascade) then recreate
+    await prisma.auditTemplateSection.deleteMany({ where: { templateId: req.params.id } });
+
+    const template = await prisma.auditTemplate.update({
+      where: { id: req.params.id },
+      data: {
+        name, type, isDefault,
+        sections: {
+          create: sections.map((s, si) => ({
+            order: si + 1,
+            name: s.name,
+            isBehavior: s.isBehavior,
+            weight: s.weight,
+            items: {
+              create: s.items.map((i, ii) => ({
+                order: ii + 1,
+                description: i.description,
+                weight: i.weight,
+              })),
+            },
+          })),
+        },
+      },
+      include: {
+        sections: {
+          orderBy: { order: 'asc' },
+          include: { items: { orderBy: { order: 'asc' } } },
+        },
+        _count: { select: { audits: true } },
+      },
+    });
+    res.json(template);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Error al actualizar plantilla' });
+  }
+});
+
+// ── DELETE /templates/:id ──────────────────────────────────────────────────────
+router.delete('/templates/:id', authorize('ADMIN'), async (req, res) => {
+  try {
+    const auditCount = await prisma.audit.count({ where: { templateId: req.params.id } });
+    if (auditCount > 0) {
+      return res.status(409).json({
+        error: `No se puede eliminar: la plantilla tiene ${auditCount} auditoría${auditCount > 1 ? 's' : ''} vinculada${auditCount > 1 ? 's' : ''}. Elimina primero las auditorías o desvincula la plantilla.`,
+      });
+    }
+    await prisma.auditTemplate.delete({ where: { id: req.params.id } });
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: 'Error al eliminar plantilla' });
+  }
+});
+
+// ── POST /templates/:id/duplicate ─────────────────────────────────────────────
+router.post('/templates/:id/duplicate', authorize('ADMIN', 'SUPERVISOR'), async (req, res) => {
+  try {
+    const source = await prisma.auditTemplate.findUnique({
+      where: { id: req.params.id },
+      include: {
+        sections: {
+          orderBy: { order: 'asc' },
+          include: { items: { orderBy: { order: 'asc' } } },
+        },
+      },
+    });
+    if (!source) return res.status(404).json({ error: 'Plantilla no encontrada' });
+
+    const copy = await prisma.auditTemplate.create({
+      data: {
+        name: `${source.name} (copia)`,
+        type: source.type,
+        isDefault: false,
+        sections: {
+          create: source.sections.map(s => ({
+            order: s.order,
+            name: s.name,
+            isBehavior: s.isBehavior,
+            weight: s.weight,
+            items: {
+              create: s.items.map(i => ({
+                order: i.order,
+                description: i.description,
+                weight: i.weight,
+              })),
+            },
+          })),
+        },
+      },
+      include: {
+        sections: {
+          orderBy: { order: 'asc' },
+          include: { items: { orderBy: { order: 'asc' } } },
+        },
+        _count: { select: { audits: true } },
+      },
+    });
+    res.status(201).json(copy);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Error al duplicar plantilla' });
   }
 });
 
@@ -210,10 +395,12 @@ router.post('/', authorize('ADMIN', 'SUPERVISOR'), async (req, res) => {
             order: s.order,
             name: s.name,
             isBehavior: s.isBehavior,
+            weight: s.weight,
             items: {
               create: s.items.map(i => ({
                 order: i.order,
                 description: i.description,
+                weight: i.weight,
               })),
             },
           })),
@@ -256,11 +443,20 @@ router.patch('/:id/complete', async (req, res) => {
     });
     if (!audit) return res.status(404).json({ error: 'Auditoría no encontrada' });
 
-    const allItems = audit.sections.flatMap(s => s.items);
-    const answered = allItems.filter(i => i.result !== null && i.result !== 'NA');
-    const passed = answered.filter(i => i.result === 'PASS');
-    const score = answered.length > 0
-      ? Math.round((passed.length / answered.length) * 1000) / 10
+    // Weighted score: effectiveWeight = section.weight × item.weight
+    let weightedPass = 0;
+    let weightedTotal = 0;
+    for (const section of audit.sections) {
+      const sectionWeight = section.weight ?? 1;
+      for (const item of section.items) {
+        if (!item.result || item.result === 'NA') continue;
+        const effective = sectionWeight * (item.weight ?? 1);
+        weightedTotal += effective;
+        if (item.result === 'PASS') weightedPass += effective;
+      }
+    }
+    const score = weightedTotal > 0
+      ? Math.round((weightedPass / weightedTotal) * 1000) / 10
       : null;
 
     const updated = await prisma.audit.update({
@@ -385,4 +581,137 @@ router.patch('/capa/:id', async (req, res) => {
   }
 });
 
+// ── GET /reports/capas ─────────────────────────────────────────────────────────
+// Dashboard de CAPAs: contadores globales + tabla filtrable + desglose por responsable
+router.get('/reports/capas', async (req, res) => {
+  try {
+    const { severity, assignedTo, area, status } = req.query as Record<string, string>;
+
+    const where: Record<string, unknown> = {};
+    if (severity) where.severity = severity;
+    if (status)   where.status   = status;
+    if (assignedTo) where.assignedToId = assignedTo;
+    if (area) where.audit = { area };
+
+    const [allCapas, filtered] = await Promise.all([
+      prisma.capaAction.findMany({
+        select: { status: true, dueDate: true, severity: true, assignedToId: true },
+      }),
+      prisma.capaAction.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          assignedTo: { select: { id: true, name: true } },
+          createdBy:  { select: { id: true, name: true } },
+          audit: { select: { id: true, code: true, title: true, area: true, type: true } },
+          auditItem: { select: { id: true, description: true } },
+        },
+      }),
+    ]);
+
+    const now = new Date();
+    const globalStats = {
+      total:               allCapas.length,
+      open:                allCapas.filter(c => c.status === 'OPEN').length,
+      inProgress:          allCapas.filter(c => c.status === 'IN_PROGRESS').length,
+      pendingVerification: allCapas.filter(c => c.status === 'PENDING_VERIFICATION').length,
+      closed:              allCapas.filter(c => c.status === 'CLOSED').length,
+      overdue:             allCapas.filter(c => c.status !== 'CLOSED' && new Date(c.dueDate) < now).length,
+    };
+
+    // Desglose por responsable (todos, sin filtrar)
+    const responsableMap: Record<string, { id: string; name: string; total: number; closed: number; overdue: number }> = {};
+    for (const c of allCapas) {
+      if (!responsableMap[c.assignedToId]) {
+        responsableMap[c.assignedToId] = { id: c.assignedToId, name: '', total: 0, closed: 0, overdue: 0 };
+      }
+      responsableMap[c.assignedToId].total++;
+      if (c.status === 'CLOSED') responsableMap[c.assignedToId].closed++;
+      if (c.status !== 'CLOSED' && new Date(c.dueDate) < now) responsableMap[c.assignedToId].overdue++;
+    }
+
+    const users = await prisma.user.findMany({
+      where: { id: { in: Object.keys(responsableMap) } },
+      select: { id: true, name: true },
+    });
+    for (const u of users) {
+      if (responsableMap[u.id]) responsableMap[u.id].name = u.name;
+    }
+
+    const byResponsable = Object.values(responsableMap)
+      .map(r => ({ ...r, pct: r.total > 0 ? Math.round(r.closed / r.total * 100) : 0 }))
+      .sort((a, b) => b.total - a.total);
+
+    res.json({ globalStats, capas: filtered, byResponsable });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Error al obtener reporte de CAPAs' });
+  }
+});
+
+// ── GET /reports/monthly ───────────────────────────────────────────────────────
+// Cumplimiento mensual por área: últimos N meses
+router.get('/reports/monthly', async (req, res) => {
+  try {
+    const months = Math.min(parseInt(req.query.months as string) || 6, 24);
+
+    const since = new Date();
+    since.setMonth(since.getMonth() - months + 1);
+    since.setDate(1);
+    since.setHours(0, 0, 0, 0);
+
+    const audits = await prisma.audit.findMany({
+      where: {
+        status: { in: ['COMPLETED', 'CLOSED'] },
+        completedAt: { gte: since },
+        score: { not: null },
+      },
+      select: { area: true, score: true, completedAt: true, type: true },
+      orderBy: { completedAt: 'asc' },
+    });
+
+    // Agrupar por mes y área
+    const monthMap: Record<string, Record<string, number[]>> = {};
+    for (const a of audits) {
+      if (!a.completedAt || a.score === null) continue;
+      const d = new Date(a.completedAt);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      if (!monthMap[key]) monthMap[key] = {};
+      if (!monthMap[key][a.area]) monthMap[key][a.area] = [];
+      monthMap[key][a.area].push(a.score);
+    }
+
+    const areas = [...new Set(audits.map(a => a.area))].sort();
+
+    const rows = Object.entries(monthMap)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([month, areaScores]) => {
+        const entry: Record<string, unknown> = { month };
+        for (const area of areas) {
+          const scores = areaScores[area];
+          entry[area] = scores
+            ? Math.round(scores.reduce((s, v) => s + v, 0) / scores.length * 10) / 10
+            : null;
+        }
+        return entry;
+      });
+
+    // Resumen total por área
+    const areaSummary = areas.map(area => {
+      const all = audits.filter(a => a.area === area && a.score !== null).map(a => a.score as number);
+      return {
+        area,
+        count: all.length,
+        avg: all.length > 0 ? Math.round(all.reduce((s, v) => s + v, 0) / all.length * 10) / 10 : null,
+      };
+    });
+
+    res.json({ rows, areas, areaSummary, months });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Error al obtener reporte mensual' });
+  }
+});
+
 export default router;
+

@@ -2,11 +2,12 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   ChevronLeft, ChevronDown, ChevronUp, CheckCircle2, XCircle, MinusCircle,
-  AlertTriangle, Play, CheckCheck, User, X, Plus, Clock,
+  AlertTriangle, Play, CheckCheck, User, X, Plus, Clock, FileDown,
 } from 'lucide-react';
 import { api } from '@/services/api';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/useToast';
+import { exportAuditPDF } from '@/lib/pdfExport';
 import type { Audit, AuditSection, AuditItem, AuditResult, CapaSeverity, CapaType } from '@/types';
 
 const FONT = 'IBM Plex Sans, sans-serif';
@@ -466,9 +467,18 @@ export default function AuditDetailPage() {
 
           {/* Puntaje o botones de acción */}
           {audit.status === 'COMPLETED' || audit.status === 'CLOSED' ? (
-            <div style={{ textAlign: 'right', flexShrink: 0 }}>
-              <div style={{ fontSize: 28, fontWeight: 700, color: pct >= 80 ? '#27ae60' : pct >= 60 ? '#e67e22' : '#e74c3c' }}>{audit.score ?? pct}%</div>
-              <div style={{ fontSize: 10, color: '#aaa' }}>cumplimiento</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
+              <div style={{ textAlign: 'right' }}>
+                <div style={{ fontSize: 28, fontWeight: 700, color: pct >= 80 ? '#27ae60' : pct >= 60 ? '#e67e22' : '#e74c3c' }}>{audit.score ?? pct}%</div>
+                <div style={{ fontSize: 10, color: '#aaa' }}>cumplimiento</div>
+              </div>
+              <button
+                onClick={() => exportAuditPDF(audit)}
+                title="Exportar PDF"
+                style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '8px 14px', background: '#f5f5f5', border: '1px solid #e0e0e0', borderRadius: 8, cursor: 'pointer', fontFamily: FONT, fontSize: 12, fontWeight: 600, color: '#555', flexShrink: 0 }}
+              >
+                <FileDown size={14} /> PDF
+              </button>
             </div>
           ) : canStart ? (
             <button onClick={handleStart} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 16px', background: ACCENT, color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontFamily: FONT, fontSize: 13, fontWeight: 600, flexShrink: 0 }}>

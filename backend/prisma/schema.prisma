@@ -255,6 +255,7 @@ model AuditTemplate {
   type      String                 // "FIVE_S" | "PROCESS"
   isDefault Boolean                @default(false)
   createdAt DateTime               @default(now())
+  updatedAt DateTime               @updatedAt
 
   sections  AuditTemplateSection[]
   audits    Audit[]
@@ -267,6 +268,7 @@ model AuditTemplateSection {
   order      Int
   name       String
   isBehavior Boolean             @default(false)
+  weight     Float               @default(1.0)
 
   templateId String
   template   AuditTemplate       @relation(fields: [templateId], references: [id], onDelete: Cascade)
@@ -279,6 +281,7 @@ model AuditTemplateItem {
   id          String               @id @default(cuid())
   order       Int
   description String
+  weight      Float                @default(1.0)
 
   sectionId String
   section   AuditTemplateSection @relation(fields: [sectionId], references: [id], onDelete: Cascade)
@@ -318,6 +321,7 @@ model AuditSection {
   order      Int
   name       String
   isBehavior Boolean     @default(false)
+  weight     Float       @default(1.0)
 
   auditId String
   audit   Audit      @relation(fields: [auditId], references: [id], onDelete: Cascade)
@@ -330,6 +334,7 @@ model AuditItem {
   id          String    @id @default(cuid())
   order       Int
   description String
+  weight      Float     @default(1.0)
   result      String?   // "PASS" | "FAIL" | "NA"
   notes       String?
   checkedAt   DateTime?
