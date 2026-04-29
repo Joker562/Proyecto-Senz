@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   FileText, Plus, Copy, Trash2, Edit3, Eye, ChevronDown, ChevronUp,
-  CheckCircle2, X, GripVertical, AlertTriangle, Star, Layers, List,
+  X, GripVertical, AlertTriangle, Star, Layers, List,
   Save, ArrowUp, ArrowDown,
 } from 'lucide-react';
 import { api } from '@/services/api';
@@ -323,7 +323,8 @@ function SectionEditor({
             <ItemEditor
               key={item._key}
               item={item} index={ii} total={section.items.length} sectionKey={section._key}
-              onChange={onChangeItem} onDelete={onDeleteItem} onMove={onMoveItem}
+              onChange={(itemKey, field, val) => onChangeItem(section._key, itemKey, field, val)}
+              onDelete={onDeleteItem} onMove={onMoveItem}
             />
           ))}
           <button

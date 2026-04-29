@@ -117,6 +117,15 @@ export interface AuditSection {
   items: AuditItem[];
 }
 
+export interface CapaPhoto {
+  id: string;
+  filename: string;
+  originalName: string;
+  mimeType: string;
+  size: number;
+  createdAt: string;
+}
+
 export interface CapaAction {
   id: string;
   code: string;
@@ -128,14 +137,64 @@ export interface CapaAction {
   dueDate: string;
   closedAt: string | null;
   closingNotes: string | null;
+  // 5 Whys
+  why1: string | null;
+  why2: string | null;
+  why3: string | null;
+  why4: string | null;
+  why5: string | null;
+  // Ishikawa 6M
+  ishikawaMachine: string | null;
+  ishikawaMethod: string | null;
+  ishikawaMaterial: string | null;
+  ishikawaManpower: string | null;
+  ishikawaEnvironment: string | null;
+  ishikawaMeasurement: string | null;
   auditId: string;
   audit?: { id: string; code: string; title: string; area: string; type: AuditType };
   auditItemId: string | null;
   auditItem?: Pick<AuditItem, 'id' | 'description'> | null;
   assignedTo: Pick<User, 'id' | 'name'>;
   createdBy: Pick<User, 'id' | 'name'>;
+  photos?: CapaPhoto[];
   createdAt: string;
   updatedAt: string;
+}
+
+export interface AuditRescheduleLog {
+  id: string;
+  auditId: string;
+  oldDate: string;
+  newDate: string;
+  reason: string;
+  changedBy: Pick<User, 'id' | 'name'>;
+  createdAt: string;
+}
+
+export interface AuditCalendarEvent {
+  id: string;
+  code: string;
+  title: string;
+  area: string;
+  type: AuditType;
+  status: AuditStatus;
+  scheduledAt: string;
+  auditor: Pick<User, 'id' | 'name'>;
+  hasConflict: boolean;
+  _count: { capaActions: number };
+}
+
+export interface RecurrenceItem {
+  area: string;
+  description: string;
+  failCount: number;
+  lastFail: string | null;
+}
+
+export interface UpcomingAnalytics {
+  upcoming: (Audit & { auditor: Pick<User, 'id' | 'name'> })[];
+  overdueCapas: number;
+  avgScoreWeek: number | null;
 }
 
 export interface Audit {

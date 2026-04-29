@@ -2,7 +2,9 @@ import { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '@/services/api';
 import { WorkOrder, WorkOrderStats } from '@/types';
-import { AlertTriangle, CheckCircle2, Factory } from 'lucide-react';
+import type { UpcomingAnalytics, RecurrenceItem } from '@/types';
+import { AlertTriangle, CheckCircle2, Factory, ClipboardList, TrendingUp, RefreshCw } from 'lucide-react';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { getSocket } from '@/services/socket';
 import { useAuth } from '@/hooks/useAuth';
 
@@ -96,6 +98,11 @@ export default function DashboardPage() {
   const [rangeFrom, setRangeFrom]             = useState('');
   const [rangeTo, setRangeTo]                 = useState('');
 
+  // Auditorías
+  const [upcoming, setUpcoming]     = useState<UpcomingAnalytics | null>(null);
+  const [trendData, setTrendData]   = useState<{ rows: Record<string, unknown>[]; areas: string[] } | null>(null);
+  const [recurrence, setRecurrence] = useState<RecurrenceItem[]>([]);
+
   /* Construye params de fecha para las llamadas API */
   const dateParams = useCallback((): Record<string, string> => {
     if (period === 'Rango' && rangeFrom && rangeTo) {
@@ -120,6 +127,19 @@ export default function DashboardPage() {
     }
   }, [dateParams]);
 
+  const fetchAuditWidgets = useCallback(async () => {
+    try {
+      const [upRes, trendRes, recRes] = await Promise.all([
+        api.get<UpcomingAnalytics>('/audits/analytics/upcoming'),
+        api.get<{ rows: Record<string, unknown>[]; areas: string[] }>('/audits/analytics/trend', { params: { months: 6 } }),
+        api.get<RecurrenceItem[]>('/audits/analytics/recurrence'),
+      ]);
+      setUpcoming(upRes.data);
+      setTrendData(trendRes.data);
+      setRecurrence(recRes.data.slice(0, 5));
+    } catch { /* widgets opcionales, no bloquean */ }
+  }, []);
+
   const fetchHistory = useCallback(async () => {
     setLoadingHistory(true);
     try {
@@ -130,12 +150,13 @@ export default function DashboardPage() {
     finally { setLoadingHistory(false); }
   }, [dateParams]);
 
-  /* Trigger on period / range changes */
   useEffect(() => {
-    if (period === 'Rango' && (!rangeFrom || !rangeTo)) return; // espera a que se llenen ambas fechas
+    if (period === 'Rango' && (!rangeFrom || !rangeTo)) return;
     fetchStats();
     fetchHistory();
   }, [period, rangeFrom, rangeTo, fetchStats, fetchHistory]);
+
+  useEffect(() => { fetchAuditWidgets(); }, [fetchAuditWidgets]);
 
   useEffect(() => {
     const socket = getSocket();
@@ -371,6 +392,132 @@ export default function DashboardPage() {
                 </div>
               );
             })}
+          </div>
+        )}
+
+        {/* ── Widgets de Auditorías ── */}
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, 1fr)', gap: 12, marginBottom: isMobile ? 16 : 24 }}>
+
+          {/* Próximas auditorías 7 días */}
+          <div style={card}>
+            <div style={{ padding: '12px 16px', borderBottom: `1px solid ${BORDER}`, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <ClipboardList size={15} color="#8b5cf6" />
+              <span style={{ fontWeight: 600, fontSize: 13, color: TEXT }}>Próximas Auditorías</span>
+              <span style={{ fontSize: 11, color: MUTED, marginLeft: 'auto' }}>7 días</span>
+            </div>
+            {!upcoming ? (
+              <div style={{ padding: '20px 16px', color: MUTED, fontSize: 13 }}>Cargando…</div>
+            ) : upcoming.upcoming.length === 0 ? (
+              <div style={{ padding: '20px 16px', color: MUTED, fontSize: 13, textAlign: 'center' }}>Sin auditorías en los próximos 7 días</div>
+            ) : (
+              <div>
+                {upcoming.upcoming.slice(0, 4).map(a => (
+                  <div key={a.id} onClick={() => navigate(`/audits/${a.id}`)} style={{ padding: '8px 16px', borderBottom: `1px solid ${BORDER}`, cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+                    onMouseEnter={e => (e.currentTarget.style.background = ROW_HOV)}
+                    onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
+                    <div>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: TEXT }}>{a.title}</div>
+                      <div style={{ fontSize: 11, color: MUTED }}>{a.area} · {a.auditor?.name}</div>
+                    </div>
+                    <div style={{ fontSize: 11, color: '#8b5cf6', whiteSpace: 'nowrap', marginLeft: 8 }}>
+                      {new Date(a.scheduledAt).toLocaleDateString('es', { day: 'numeric', month: 'short' })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* CAPAs vencidas + puntaje semana */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div style={{ ...card, padding: '16px', display: 'flex', alignItems: 'center', gap: 14, borderTop: `3px solid ${C_RED}` }}>
+              <div style={{ width: 44, height: 44, borderRadius: 10, background: '#fde8e6', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <AlertTriangle size={20} color={C_RED} />
+              </div>
+              <div>
+                <div style={{ fontSize: 30, fontWeight: 700, color: C_RED, lineHeight: 1 }}>{upcoming?.overdueCapas ?? '—'}</div>
+                <div style={{ fontSize: 11, color: MUTED, marginTop: 2 }}>CAPAs Vencidas</div>
+              </div>
+              {(upcoming?.overdueCapas ?? 0) > 0 && (
+                <span style={{ marginLeft: 'auto', background: C_RED, color: '#fff', fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 10 }}>
+                  ALERTA
+                </span>
+              )}
+            </div>
+
+            <div style={{ ...card, padding: '16px', display: 'flex', alignItems: 'center', gap: 14, borderTop: `3px solid ${C_GREEN}` }}>
+              <div style={{ width: 44, height: 44, borderRadius: 10, background: '#e9f7ef', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <TrendingUp size={20} color={C_GREEN} />
+              </div>
+              <div>
+                <div style={{ fontSize: 30, fontWeight: 700, color: C_GREEN, lineHeight: 1 }}>
+                  {upcoming?.avgScoreWeek != null ? `${upcoming.avgScoreWeek}%` : '—'}
+                </div>
+                <div style={{ fontSize: 11, color: MUTED, marginTop: 2 }}>Puntaje Promedio (7 días)</div>
+              </div>
+            </div>
+          </div>
+
+          {/* Reincidencias */}
+          <div style={card}>
+            <div style={{ padding: '12px 16px', borderBottom: `1px solid ${BORDER}`, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <RefreshCw size={15} color={ACCENT} />
+              <span style={{ fontWeight: 600, fontSize: 13, color: TEXT }}>Ítems Reincidentes</span>
+              <span style={{ fontSize: 11, color: MUTED, marginLeft: 'auto' }}>≥3 fallos</span>
+            </div>
+            {recurrence.length === 0 ? (
+              <div style={{ padding: '20px 16px', color: MUTED, fontSize: 13, textAlign: 'center' }}>Sin reincidencias detectadas</div>
+            ) : (
+              <div>
+                {recurrence.map((r, i) => (
+                  <div key={i} style={{ padding: '8px 16px', borderBottom: `1px solid ${BORDER}`, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 12, color: TEXT, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.description}</div>
+                      <div style={{ fontSize: 11, color: MUTED }}>{r.area}</div>
+                    </div>
+                    <span style={{ background: '#fde8e6', color: C_RED, fontSize: 11, fontWeight: 700, padding: '1px 7px', borderRadius: 10, whiteSpace: 'nowrap', flexShrink: 0 }}>
+                      {r.failCount}x
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* ── Gráfica de tendencia histórica de puntajes ── */}
+        {trendData && trendData.rows.length > 0 && (
+          <div style={{ ...card, marginBottom: isMobile ? 16 : 24 }}>
+            <div style={{ padding: '12px 16px', borderBottom: `1px solid ${BORDER}`, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <TrendingUp size={15} color={C_BLUE} />
+              <span style={{ fontWeight: 600, fontSize: 13, color: TEXT }}>Tendencia Histórica de Puntajes por Área</span>
+              <span style={{ fontSize: 11, color: MUTED, marginLeft: 'auto' }}>últimos 6 meses</span>
+            </div>
+            <div style={{ padding: '16px 8px' }}>
+              <ResponsiveContainer width="100%" height={220}>
+                <LineChart data={trendData.rows} margin={{ top: 4, right: 24, left: 0, bottom: 4 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={BORDER} />
+                  <XAxis dataKey="month" tick={{ fontSize: 11, fill: MUTED }} />
+                  <YAxis domain={[0, 100]} tick={{ fontSize: 11, fill: MUTED }} unit="%" />
+                  <Tooltip formatter={(v: number) => `${v}%`} />
+                  <Legend wrapperStyle={{ fontSize: 11 }} />
+                  {trendData.areas.map((area, idx) => {
+                    const COLORS = [C_BLUE, ACCENT, C_GREEN, '#8b5cf6', C_RED, '#14b8a6'];
+                    return (
+                      <Line
+                        key={area}
+                        type="monotone"
+                        dataKey={area}
+                        stroke={COLORS[idx % COLORS.length]}
+                        strokeWidth={2}
+                        dot={{ r: 3 }}
+                        connectNulls
+                      />
+                    );
+                  })}
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
           </div>
         )}
 

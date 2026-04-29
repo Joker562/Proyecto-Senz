@@ -26,10 +26,11 @@ model User {
   usageLogs          AssetUsageLog[]
 
   // AuditorÃ­as
-  auditsAsAuditor   Audit[]      @relation("AuditAuditor")
-  auditItemsChecked AuditItem[]  @relation("AuditItemChecker")
-  capaAssigned      CapaAction[] @relation("CapaAssigned")
-  capaCreated       CapaAction[] @relation("CapaCreated")
+  auditsAsAuditor        Audit[]               @relation("AuditAuditor")
+  auditItemsChecked      AuditItem[]           @relation("AuditItemChecker")
+  capaAssigned           CapaAction[]          @relation("CapaAssigned")
+  capaCreated            CapaAction[]          @relation("CapaCreated")
+  auditRescheduleLogs    AuditRescheduleLog[]  @relation("AuditRescheduleChanger")
 
   @@map("users")
 }
@@ -307,8 +308,9 @@ model Audit {
   templateId String?
   template   AuditTemplate? @relation(fields: [templateId], references: [id])
 
-  sections    AuditSection[]
-  capaActions CapaAction[]
+  sections        AuditSection[]
+  capaActions     CapaAction[]
+  rescheduleLogs  AuditRescheduleLog[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -361,6 +363,21 @@ model CapaAction {
   closedAt     DateTime?
   closingNotes String?
 
+  // 5 Whys
+  why1 String?
+  why2 String?
+  why3 String?
+  why4 String?
+  why5 String?
+
+  // Ishikawa 6M
+  ishikawaMachine     String?
+  ishikawaMethod      String?
+  ishikawaMaterial    String?
+  ishikawaManpower    String?
+  ishikawaEnvironment String?
+  ishikawaMeasurement String?
+
   auditId     String
   audit       Audit     @relation(fields: [auditId], references: [id])
   auditItemId String?
@@ -371,10 +388,40 @@ model CapaAction {
   createdById  String
   createdBy    User   @relation("CapaCreated", fields: [createdById], references: [id])
 
+  photos CapaPhoto[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@map("capa_actions")
+}
+
+model CapaPhoto {
+  id           String    @id @default(cuid())
+  filename     String
+  originalName String
+  mimeType     String
+  size         Int
+  createdAt    DateTime  @default(now())
+
+  capaId String
+  capa   CapaAction @relation(fields: [capaId], references: [id], onDelete: Cascade)
+
+  @@map("capa_photos")
+}
+
+model AuditRescheduleLog {
+  id         String   @id @default(cuid())
+  auditId    String
+  audit      Audit    @relation(fields: [auditId], references: [id], onDelete: Cascade)
+  oldDate    DateTime
+  newDate    DateTime
+  reason     String
+  changedById String
+  changedBy  User     @relation("AuditRescheduleChanger", fields: [changedById], references: [id])
+  createdAt  DateTime @default(now())
+
+  @@map("audit_reschedule_logs")
 }
 
 model Comment {

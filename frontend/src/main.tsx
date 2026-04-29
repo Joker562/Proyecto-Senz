@@ -1,7 +1,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { Car, BarChart3, ClipboardCheck, Truck, AlertTriangle, ClipboardX, FileText } from 'lucide-react';
+import { Car, BarChart3, Truck, AlertTriangle } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import AppLayout from '@/components/layout/AppLayout';
 import LoginPage from '@/pages/LoginPage';
@@ -126,49 +126,6 @@ const OEEDowntimePage = () => (
   />
 );
 
-// ─── Páginas placeholder de Auditorías ───────────────────────────────────────
-
-const AuditsListPage = () => (
-  <PlaceholderPage
-    icon={ClipboardCheck}
-    title="Auditorías"
-    subtitle="Planificación y ejecución de auditorías internas de seguridad, calidad y mantenimiento."
-    features={[
-      { label: 'Programación de auditorías', description: 'Crear auditorías con fecha, tipo, auditor responsable y área o equipo a auditar.' },
-      { label: 'Checklist dinámico', description: 'Ejecutar la auditoría ítem por ítem con resultado: Pasa / Falla / N/A / Observación.' },
-      { label: 'Puntaje de cumplimiento', description: 'Calificación automática en porcentaje al cerrar la auditoría.' },
-    ]}
-    accentColor="#27ae60"
-  />
-);
-
-const AuditsFindingsPage = () => (
-  <PlaceholderPage
-    icon={ClipboardX}
-    title="Hallazgos"
-    subtitle="Seguimiento de todos los hallazgos abiertos y sus acciones correctivas hasta cierre."
-    features={[
-      { label: 'Severidad y prioridad', description: 'Crítico, Mayor, Menor u Observación para priorizar las acciones correctivas.' },
-      { label: 'Asignación y fecha límite', description: 'Cada hallazgo se asigna a un responsable con fecha de cierre comprometida.' },
-      { label: 'Trazabilidad completa', description: 'Historial de cambios de estado desde apertura hasta verificación y cierre.' },
-    ]}
-    accentColor="#27ae60"
-  />
-);
-
-const AuditsTemplatesPage = () => (
-  <PlaceholderPage
-    icon={FileText}
-    title="Plantillas de Auditoría"
-    subtitle="Biblioteca de checklists reutilizables para estandarizar las auditorías por tipo."
-    features={[
-      { label: 'Plantillas por tipo', description: 'Seguridad, calidad, mantenimiento, ambiental — cada una con sus ítems propios.' },
-      { label: 'Categorías de ítems', description: 'Agrupar preguntas por sección para una auditoría estructurada y fácil de navegar.' },
-      { label: 'Reutilización', description: 'Seleccionar una plantilla al crear una auditoría para pre-poblar el checklist automáticamente.' },
-    ]}
-    accentColor="#27ae60"
-  />
-);
 
 // ─── Router ───────────────────────────────────────────────────────────────────
 

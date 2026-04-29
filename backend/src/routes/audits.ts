@@ -2,6 +2,9 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../services/prisma';
 import { authenticate, authorize } from '../middleware/auth';
+import { upload } from '../services/upload';
+import path from 'path';
+import fs from 'fs';
 
 const router = Router();
 router.use(authenticate);
@@ -556,6 +559,17 @@ router.post('/:id/capa', async (req, res) => {
 const updateCapaSchema = z.object({
   status: z.enum(['OPEN', 'IN_PROGRESS', 'PENDING_VERIFICATION', 'CLOSED']).optional(),
   closingNotes: z.string().optional(),
+  why1: z.string().optional(),
+  why2: z.string().optional(),
+  why3: z.string().optional(),
+  why4: z.string().optional(),
+  why5: z.string().optional(),
+  ishikawaMachine:     z.string().optional(),
+  ishikawaMethod:      z.string().optional(),
+  ishikawaMaterial:    z.string().optional(),
+  ishikawaManpower:    z.string().optional(),
+  ishikawaEnvironment: z.string().optional(),
+  ishikawaMeasurement: z.string().optional(),
 });
 
 router.patch('/capa/:id', async (req, res) => {
@@ -573,11 +587,399 @@ router.patch('/capa/:id', async (req, res) => {
         assignedTo: { select: { id: true, name: true } },
         createdBy: { select: { id: true, name: true } },
         audit: { select: { id: true, code: true, title: true, area: true } },
+        photos: true,
       },
     });
     res.json(capa);
   } catch (e) {
     res.status(500).json({ error: 'Error al actualizar acción CAPA' });
+  }
+});
+
+// ── GET /capa/:id ──────────────────────────────────────────────────────────────
+router.get('/capa/:id', async (req, res) => {
+  try {
+    const capa = await prisma.capaAction.findUnique({
+      where: { id: req.params.id },
+      include: {
+        assignedTo: { select: { id: true, name: true } },
+        createdBy:  { select: { id: true, name: true } },
+        audit:      { select: { id: true, code: true, title: true, area: true, type: true } },
+        auditItem:  { select: { id: true, description: true } },
+        photos: true,
+      },
+    });
+    if (!capa) return res.status(404).json({ error: 'CAPA no encontrada' });
+    res.json(capa);
+  } catch (e) {
+    res.status(500).json({ error: 'Error al obtener CAPA' });
+  }
+});
+
+// ── POST /capa/:id/photos ──────────────────────────────────────────────────────
+router.post('/capa/:id/photos', upload.array('files', 10), async (req, res) => {
+  try {
+    const files = req.files as Express.Multer.File[];
+    if (!files?.length) return res.status(400).json({ error: 'No se recibieron archivos' });
+
+    const photos = await Promise.all(files.map(f =>
+      prisma.capaPhoto.create({
+        data: {
+          capaId: req.params.id,
+          filename: f.filename,
+          originalName: f.originalname,
+          mimeType: f.mimetype,
+          size: f.size,
+        },
+      })
+    ));
+    res.status(201).json(photos);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Error al subir fotos' });
+  }
+});
+
+// ── DELETE /capa/photos/:photoId ───────────────────────────────────────────────
+router.delete('/capa/photos/:photoId', async (req, res) => {
+  try {
+    const photo = await prisma.capaPhoto.findUnique({ where: { id: req.params.photoId } });
+    if (!photo) return res.status(404).json({ error: 'Foto no encontrada' });
+    const filePath = path.join(process.cwd(), 'uploads', photo.filename);
+    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    await prisma.capaPhoto.delete({ where: { id: req.params.photoId } });
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: 'Error al eliminar foto' });
+  }
+});
+
+// ── PATCH /:id/metadata (solo DRAFT) ──────────────────────────────────────────
+const metadataSchema = z.object({
+  title:      z.string().min(3).optional(),
+  area:       z.string().min(1).optional(),
+  scheduledAt: z.string().optional(),
+  auditorId:  z.string().optional(),
+  notes:      z.string().optional(),
+});
+
+router.patch('/:id/metadata', authorize('ADMIN', 'SUPERVISOR'), async (req, res) => {
+  const parsed = metadataSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+  try {
+    const audit = await prisma.audit.findUnique({ where: { id: req.params.id }, select: { status: true } });
+    if (!audit) return res.status(404).json({ error: 'Auditoría no encontrada' });
+    if (audit.status !== 'DRAFT') return res.status(409).json({ error: 'Solo se puede editar en estado DRAFT' });
+
+    const data: Record<string, unknown> = { ...parsed.data };
+    if (parsed.data.scheduledAt) data.scheduledAt = new Date(parsed.data.scheduledAt);
+
+    const updated = await prisma.audit.update({
+      where: { id: req.params.id },
+      data,
+      include: { auditor: { select: { id: true, name: true } } },
+    });
+    res.json(updated);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Error al actualizar metadata' });
+  }
+});
+
+// ── POST /:id/sections/:sectionId/items (solo DRAFT) ──────────────────────────
+router.post('/:id/sections/:sectionId/items', authorize('ADMIN', 'SUPERVISOR'), async (req, res) => {
+  const { description, weight } = req.body;
+  if (!description) return res.status(400).json({ error: 'Descripción requerida' });
+
+  try {
+    const audit = await prisma.audit.findUnique({ where: { id: req.params.id }, select: { status: true } });
+    if (!audit) return res.status(404).json({ error: 'Auditoría no encontrada' });
+    if (audit.status !== 'DRAFT') return res.status(409).json({ error: 'Solo se puede editar en estado DRAFT' });
+
+    const lastItem = await prisma.auditItem.findFirst({
+      where: { sectionId: req.params.sectionId },
+      orderBy: { order: 'desc' },
+      select: { order: true },
+    });
+    const item = await prisma.auditItem.create({
+      data: {
+        sectionId: req.params.sectionId,
+        description,
+        weight: weight ?? 1,
+        order: (lastItem?.order ?? 0) + 1,
+      },
+    });
+    res.status(201).json(item);
+  } catch (e) {
+    res.status(500).json({ error: 'Error al agregar ítem' });
+  }
+});
+
+// ── DELETE /:id/items/:itemId (solo DRAFT) ────────────────────────────────────
+router.delete('/:id/items/:itemId', authorize('ADMIN', 'SUPERVISOR'), async (req, res) => {
+  try {
+    const audit = await prisma.audit.findUnique({ where: { id: req.params.id }, select: { status: true } });
+    if (!audit) return res.status(404).json({ error: 'Auditoría no encontrada' });
+    if (audit.status !== 'DRAFT') return res.status(409).json({ error: 'Solo se puede editar en estado DRAFT' });
+
+    await prisma.auditItem.delete({ where: { id: req.params.itemId } });
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: 'Error al eliminar ítem' });
+  }
+});
+
+// ── GET /calendar ──────────────────────────────────────────────────────────────
+router.get('/calendar', async (req, res) => {
+  try {
+    const { from, to } = req.query as Record<string, string>;
+    const where: Record<string, unknown> = {};
+    if (from || to) {
+      where.scheduledAt = {};
+      if (from) (where.scheduledAt as Record<string, unknown>).gte = new Date(from);
+      if (to)   (where.scheduledAt as Record<string, unknown>).lte = new Date(to);
+    }
+
+    const audits = await prisma.audit.findMany({
+      where,
+      select: {
+        id: true, code: true, title: true, area: true, type: true,
+        status: true, scheduledAt: true,
+        auditor: { select: { id: true, name: true } },
+        _count: { select: { capaActions: true } },
+      },
+      orderBy: { scheduledAt: 'asc' },
+    });
+
+    // Detectar conflictos: mismo auditor, mismo día
+    const conflictMap: Record<string, boolean> = {};
+    const auditorDayMap: Record<string, string[]> = {};
+    for (const a of audits) {
+      const key = `${a.auditor.id}_${a.scheduledAt.toISOString().slice(0, 10)}`;
+      if (!auditorDayMap[key]) auditorDayMap[key] = [];
+      auditorDayMap[key].push(a.id);
+    }
+    for (const ids of Object.values(auditorDayMap)) {
+      if (ids.length > 1) ids.forEach(id => { conflictMap[id] = true; });
+    }
+
+    const result = audits.map(a => ({ ...a, hasConflict: !!conflictMap[a.id] }));
+    res.json(result);
+  } catch (e) {
+    res.status(500).json({ error: 'Error al obtener calendario de auditorías' });
+  }
+});
+
+// ── PATCH /:id/reschedule ──────────────────────────────────────────────────────
+const rescheduleSchema = z.object({
+  scheduledAt: z.string(),
+  reason: z.string().min(5, 'El motivo debe tener al menos 5 caracteres'),
+});
+
+router.patch('/:id/reschedule', authorize('ADMIN', 'SUPERVISOR'), async (req, res) => {
+  const parsed = rescheduleSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+  try {
+    const audit = await prisma.audit.findUnique({
+      where: { id: req.params.id },
+      select: { scheduledAt: true, status: true },
+    });
+    if (!audit) return res.status(404).json({ error: 'Auditoría no encontrada' });
+    if (audit.status === 'CLOSED') return res.status(409).json({ error: 'No se puede reprogramar una auditoría cerrada' });
+
+    const newDate = new Date(parsed.data.scheduledAt);
+
+    await prisma.$transaction([
+      prisma.auditRescheduleLog.create({
+        data: {
+          auditId: req.params.id,
+          oldDate: audit.scheduledAt,
+          newDate,
+          reason: parsed.data.reason,
+          changedById: (req as any).user.userId,
+        },
+      }),
+      prisma.audit.update({
+        where: { id: req.params.id },
+        data: { scheduledAt: newDate },
+      }),
+    ]);
+
+    const updated = await prisma.audit.findUnique({
+      where: { id: req.params.id },
+      include: { auditor: { select: { id: true, name: true } } },
+    });
+    res.json(updated);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Error al reprogramar auditoría' });
+  }
+});
+
+// ── GET /:id/reschedule-history ────────────────────────────────────────────────
+router.get('/:id/reschedule-history', async (req, res) => {
+  try {
+    const logs = await prisma.auditRescheduleLog.findMany({
+      where: { auditId: req.params.id },
+      include: { changedBy: { select: { id: true, name: true } } },
+      orderBy: { createdAt: 'desc' },
+    });
+    res.json(logs);
+  } catch (e) {
+    res.status(500).json({ error: 'Error al obtener historial de reprogramaciones' });
+  }
+});
+
+// ── GET /analytics/trend ───────────────────────────────────────────────────────
+router.get('/analytics/trend', async (req, res) => {
+  try {
+    const months = Math.min(parseInt(req.query.months as string) || 6, 24);
+    const since = new Date();
+    since.setMonth(since.getMonth() - months + 1);
+    since.setDate(1); since.setHours(0, 0, 0, 0);
+
+    const audits = await prisma.audit.findMany({
+      where: { status: { in: ['COMPLETED', 'CLOSED'] }, completedAt: { gte: since }, score: { not: null } },
+      select: { area: true, score: true, completedAt: true },
+      orderBy: { completedAt: 'asc' },
+    });
+
+    const areas = [...new Set(audits.map(a => a.area))].sort();
+    const monthMap: Record<string, Record<string, number[]>> = {};
+
+    for (const a of audits) {
+      if (!a.completedAt || a.score === null) continue;
+      const d = new Date(a.completedAt);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      if (!monthMap[key]) monthMap[key] = {};
+      if (!monthMap[key][a.area]) monthMap[key][a.area] = [];
+      monthMap[key][a.area].push(a.score);
+    }
+
+    const rows = Object.entries(monthMap)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([month, areaScores]) => {
+        const entry: Record<string, unknown> = { month };
+        for (const area of areas) {
+          const scores = areaScores[area];
+          entry[area] = scores ? Math.round(scores.reduce((s, v) => s + v, 0) / scores.length * 10) / 10 : null;
+        }
+        return entry;
+      });
+
+    res.json({ rows, areas });
+  } catch (e) {
+    res.status(500).json({ error: 'Error al obtener tendencia' });
+  }
+});
+
+// ── GET /analytics/recurrence ──────────────────────────────────────────────────
+// Detecta ítems que han fallado en las últimas 3 auditorías de la misma área
+router.get('/analytics/recurrence', async (req, res) => {
+  try {
+    const items = await prisma.auditItem.findMany({
+      where: { result: 'FAIL' },
+      include: {
+        section: {
+          include: {
+            audit: { select: { area: true, completedAt: true, status: true } },
+          },
+        },
+      },
+      orderBy: { section: { audit: { completedAt: 'desc' } } },
+    });
+
+    // Agrupar por área + descripción normalizada
+    const map: Record<string, { area: string; description: string; failCount: number; lastFail: string | null }> = {};
+    for (const item of items) {
+      const area = item.section.audit.area;
+      const key = `${area}::${item.description.trim().toLowerCase()}`;
+      if (!map[key]) map[key] = { area, description: item.description, failCount: 0, lastFail: null };
+      map[key].failCount++;
+      const at = item.section.audit.completedAt?.toISOString() ?? null;
+      if (at && (!map[key].lastFail || at > map[key].lastFail!)) map[key].lastFail = at;
+    }
+
+    const recurrent = Object.values(map)
+      .filter(r => r.failCount >= 3)
+      .sort((a, b) => b.failCount - a.failCount);
+
+    res.json(recurrent);
+  } catch (e) {
+    res.status(500).json({ error: 'Error al calcular reincidencias' });
+  }
+});
+
+// ── GET /analytics/efficacy ────────────────────────────────────────────────────
+router.get('/analytics/efficacy', async (req, res) => {
+  try {
+    const capas = await prisma.capaAction.findMany({
+      select: { status: true, dueDate: true, closedAt: true, createdAt: true, updatedAt: true },
+    });
+
+    const now = new Date();
+    const total = capas.length;
+    const closed = capas.filter(c => c.status === 'CLOSED');
+    const closedOnTime = closed.filter(c => c.closedAt && new Date(c.closedAt) <= new Date(c.dueDate));
+    const effective = closed.filter(c => {
+      if (!c.closedAt) return false;
+      const daysSinceClosed = (now.getTime() - new Date(c.closedAt).getTime()) / 86400000;
+      return daysSinceClosed >= 30;
+    });
+
+    res.json({
+      total,
+      closed: closed.length,
+      closedOnTime: closedOnTime.length,
+      pctOnTime: closed.length > 0 ? Math.round(closedOnTime.length / closed.length * 100) : 0,
+      effective: effective.length,
+      pctEfficacy: effective.length > 0
+        ? Math.round(effective.length / closed.filter(c => {
+            if (!c.closedAt) return false;
+            return (now.getTime() - new Date(c.closedAt).getTime()) / 86400000 >= 30;
+          }).length * 100)
+        : 0,
+    });
+  } catch (e) {
+    res.status(500).json({ error: 'Error al calcular eficacia' });
+  }
+});
+
+// ── GET /analytics/upcoming ────────────────────────────────────────────────────
+router.get('/analytics/upcoming', async (req, res) => {
+  try {
+    const now = new Date();
+    const in7 = new Date(now.getTime() + 7 * 86400000);
+
+    const [upcoming, overdueCapas, recentScores] = await Promise.all([
+      prisma.audit.findMany({
+        where: { scheduledAt: { gte: now, lte: in7 }, status: { in: ['DRAFT', 'IN_PROGRESS'] } },
+        include: { auditor: { select: { id: true, name: true } } },
+        orderBy: { scheduledAt: 'asc' },
+      }),
+      prisma.capaAction.count({
+        where: { status: { not: 'CLOSED' }, dueDate: { lt: now } },
+      }),
+      prisma.audit.findMany({
+        where: {
+          status: { in: ['COMPLETED', 'CLOSED'] },
+          completedAt: { gte: new Date(now.getTime() - 7 * 86400000) },
+          score: { not: null },
+        },
+        select: { score: true },
+      }),
+    ]);
+
+    const scores = recentScores.map(a => a.score as number);
+    const avgScoreWeek = scores.length > 0
+      ? Math.round(scores.reduce((s, v) => s + v, 0) / scores.length * 10) / 10
+      : null;
+
+    res.json({ upcoming, overdueCapas, avgScoreWeek });
+  } catch (e) {
+    res.status(500).json({ error: 'Error al obtener datos de próximas auditorías' });
   }
 });
 
