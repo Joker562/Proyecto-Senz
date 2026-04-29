@@ -1,5 +1,20 @@
-node_modules/
+﻿node_modules/
 dist/
+build/
 .env
 *.local
 .DS_Store
+
+# Uploads - guardar localmente, no en git
+uploads/
+
+# Database local (SQLite)
+*.db
+*.db-journal
+
+# Logs
+*.log
+
+# IDE
+.vscode/
+.idea/
