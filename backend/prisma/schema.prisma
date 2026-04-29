@@ -3,8 +3,8 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
-  url      = "file:./dev.db"
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 model User {
@@ -25,7 +25,7 @@ model User {
   checklistItemsDone WorkOrderChecklistItem[]
   usageLogs          AssetUsageLog[]
 
-  // Auditorías
+  // AuditorÃ­as
   auditsAsAuditor   Audit[]      @relation("AuditAuditor")
   auditItemsChecked AuditItem[]  @relation("AuditItemChecker")
   capaAssigned      CapaAction[] @relation("CapaAssigned")
@@ -247,7 +247,7 @@ model AppSetting {
   @@map("app_settings")
 }
 
-// ─── Módulo de Auditorías ────────────────────────────────────────────────────
+// â”€â”€â”€ MÃ³dulo de AuditorÃ­as â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 model AuditTemplate {
   id        String                 @id @default(cuid())
