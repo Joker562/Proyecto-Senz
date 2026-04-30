@@ -209,21 +209,23 @@ export default function AuditCalendarPage() {
   const [historyLogs, setHistoryLogs]                   = useState<AuditRescheduleLog[]>([]);
   const [filterStatus, setFilterStatus]                 = useState<string>('');
   const [filterAuditor, setFilterAuditor]               = useState<string>('');
+  const [error, setError]                               = useState<string | null>(null);
 
   const fetchEvents = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       const start = startOfMonth(currentDate);
       const end = endOfMonth(currentDate);
-      // Expand range by one week to show events at edges
       start.setDate(start.getDate() - 7);
       end.setDate(end.getDate() + 7);
       const { data } = await api.get<AuditCalendarEvent[]>('/audits/calendar', {
         params: { from: start.toISOString(), to: end.toISOString() },
       });
       setEvents(data);
-    } catch {
-      /* silent */
+    } catch (e: unknown) {
+      const msg = (e as { response?: { data?: { error?: string } } })?.response?.data?.error;
+      setError(msg ?? 'Error al cargar el calendario. Verifica que el servidor esté activo.');
     } finally {
       setLoading(false);
     }
@@ -408,6 +410,15 @@ export default function AuditCalendarPage() {
           </button>
         </div>
       </div>
+
+      {/* Error banner */}
+      {error && (
+        <div className="bg-red-50 border-b border-red-200 px-6 py-2 flex items-center gap-2">
+          <AlertTriangle size={14} className="text-red-500 shrink-0" />
+          <span className="text-xs text-red-700">{error}</span>
+          <button onClick={fetchEvents} className="ml-auto text-xs text-red-600 underline">Reintentar</button>
+        </div>
+      )}
 
       {/* Conflict banner */}
       {conflictsCount > 0 && (
