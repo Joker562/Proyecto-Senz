@@ -315,6 +315,195 @@ router.get('/', async (req, res) => {
   }
 });
 
+// ── GET /calendar ──────────────────────────────────────────────────────────────
+router.get('/calendar', async (req, res) => {
+  try {
+    const { from, to } = req.query as Record<string, string>;
+    const where: Record<string, unknown> = {};
+    if (from || to) {
+      where.scheduledAt = {};
+      if (from) (where.scheduledAt as Record<string, unknown>).gte = new Date(from);
+      if (to)   (where.scheduledAt as Record<string, unknown>).lte = new Date(to);
+    }
+
+    const audits = await prisma.audit.findMany({
+      where,
+      select: {
+        id: true, code: true, title: true, area: true, type: true,
+        status: true, scheduledAt: true,
+        auditor: { select: { id: true, name: true } },
+        _count: { select: { capaActions: true } },
+      },
+      orderBy: { scheduledAt: 'asc' },
+    });
+
+    const conflictMap: Record<string, boolean> = {};
+    const auditorDayMap: Record<string, string[]> = {};
+    for (const a of audits) {
+      const key = `${a.auditor.id}_${a.scheduledAt.toISOString().slice(0, 10)}`;
+      if (!auditorDayMap[key]) auditorDayMap[key] = [];
+      auditorDayMap[key].push(a.id);
+    }
+    for (const ids of Object.values(auditorDayMap)) {
+      if (ids.length > 1) ids.forEach(id => { conflictMap[id] = true; });
+    }
+
+    const result = audits.map(a => ({ ...a, hasConflict: !!conflictMap[a.id] }));
+    res.json(result);
+  } catch (e) {
+    res.status(500).json({ error: 'Error al obtener calendario de auditorías' });
+  }
+});
+
+// ── GET /analytics/upcoming ────────────────────────────────────────────────────
+router.get('/analytics/upcoming', async (req, res) => {
+  try {
+    const now = new Date();
+    const in7 = new Date(now.getTime() + 7 * 86400000);
+
+    const [upcoming, overdueCapas, recentScores] = await Promise.all([
+      prisma.audit.findMany({
+        where: { scheduledAt: { gte: now, lte: in7 }, status: { in: ['DRAFT', 'IN_PROGRESS'] } },
+        include: { auditor: { select: { id: true, name: true } } },
+        orderBy: { scheduledAt: 'asc' },
+      }),
+      prisma.capaAction.count({
+        where: { status: { not: 'CLOSED' }, dueDate: { lt: now } },
+      }),
+      prisma.audit.findMany({
+        where: {
+          status: { in: ['COMPLETED', 'CLOSED'] },
+          completedAt: { gte: new Date(now.getTime() - 7 * 86400000) },
+          score: { not: null },
+        },
+        select: { score: true },
+      }),
+    ]);
+
+    const scores = recentScores.map(a => a.score as number);
+    const avgScoreWeek = scores.length > 0
+      ? Math.round(scores.reduce((s, v) => s + v, 0) / scores.length * 10) / 10
+      : null;
+
+    res.json({ upcoming, overdueCapas, avgScoreWeek });
+  } catch (e) {
+    res.status(500).json({ error: 'Error al obtener datos de próximas auditorías' });
+  }
+});
+
+// ── GET /analytics/trend ───────────────────────────────────────────────────────
+router.get('/analytics/trend', async (req, res) => {
+  try {
+    const months = Math.min(parseInt(req.query.months as string) || 6, 24);
+    const since = new Date();
+    since.setMonth(since.getMonth() - months + 1);
+    since.setDate(1); since.setHours(0, 0, 0, 0);
+
+    const audits = await prisma.audit.findMany({
+      where: { status: { in: ['COMPLETED', 'CLOSED'] }, completedAt: { gte: since }, score: { not: null } },
+      select: { area: true, score: true, completedAt: true },
+      orderBy: { completedAt: 'asc' },
+    });
+
+    const areas = [...new Set(audits.map(a => a.area))].sort();
+    const monthMap: Record<string, Record<string, number[]>> = {};
+
+    for (const a of audits) {
+      if (!a.completedAt || a.score === null) continue;
+      const d = new Date(a.completedAt);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      if (!monthMap[key]) monthMap[key] = {};
+      if (!monthMap[key][a.area]) monthMap[key][a.area] = [];
+      monthMap[key][a.area].push(a.score);
+    }
+
+    const rows = Object.entries(monthMap)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([month, areaScores]) => {
+        const entry: Record<string, unknown> = { month };
+        for (const area of areas) {
+          const scores = areaScores[area];
+          entry[area] = scores ? Math.round(scores.reduce((s, v) => s + v, 0) / scores.length * 10) / 10 : null;
+        }
+        return entry;
+      });
+
+    res.json({ rows, areas });
+  } catch (e) {
+    res.status(500).json({ error: 'Error al obtener tendencia' });
+  }
+});
+
+// ── GET /analytics/recurrence ──────────────────────────────────────────────────
+router.get('/analytics/recurrence', async (req, res) => {
+  try {
+    const items = await prisma.auditItem.findMany({
+      where: { result: 'FAIL' },
+      include: {
+        section: {
+          include: {
+            audit: { select: { area: true, completedAt: true, status: true } },
+          },
+        },
+      },
+      orderBy: { section: { audit: { completedAt: 'desc' } } },
+    });
+
+    const map: Record<string, { area: string; description: string; failCount: number; lastFail: string | null }> = {};
+    for (const item of items) {
+      const area = item.section.audit.area;
+      const key = `${area}::${item.description.trim().toLowerCase()}`;
+      if (!map[key]) map[key] = { area, description: item.description, failCount: 0, lastFail: null };
+      map[key].failCount++;
+      const at = item.section.audit.completedAt?.toISOString() ?? null;
+      if (at && (!map[key].lastFail || at > map[key].lastFail!)) map[key].lastFail = at;
+    }
+
+    const recurrent = Object.values(map)
+      .filter(r => r.failCount >= 3)
+      .sort((a, b) => b.failCount - a.failCount);
+
+    res.json(recurrent);
+  } catch (e) {
+    res.status(500).json({ error: 'Error al calcular reincidencias' });
+  }
+});
+
+// ── GET /analytics/efficacy ────────────────────────────────────────────────────
+router.get('/analytics/efficacy', async (req, res) => {
+  try {
+    const capas = await prisma.capaAction.findMany({
+      select: { status: true, dueDate: true, closedAt: true, createdAt: true, updatedAt: true },
+    });
+
+    const now = new Date();
+    const total = capas.length;
+    const closed = capas.filter(c => c.status === 'CLOSED');
+    const closedOnTime = closed.filter(c => c.closedAt && new Date(c.closedAt) <= new Date(c.dueDate));
+    const effective = closed.filter(c => {
+      if (!c.closedAt) return false;
+      const daysSinceClosed = (now.getTime() - new Date(c.closedAt).getTime()) / 86400000;
+      return daysSinceClosed >= 30;
+    });
+
+    res.json({
+      total,
+      closed: closed.length,
+      closedOnTime: closedOnTime.length,
+      pctOnTime: closed.length > 0 ? Math.round(closedOnTime.length / closed.length * 100) : 0,
+      effective: effective.length,
+      pctEfficacy: effective.length > 0
+        ? Math.round(effective.length / closed.filter(c => {
+            if (!c.closedAt) return false;
+            return (now.getTime() - new Date(c.closedAt).getTime()) / 86400000 >= 30;
+          }).length * 100)
+        : 0,
+    });
+  } catch (e) {
+    res.status(500).json({ error: 'Error al calcular eficacia' });
+  }
+});
+
 // ── GET /:id ───────────────────────────────────────────────────────────────────
 router.get('/:id', async (req, res) => {
   try {
@@ -730,47 +919,6 @@ router.delete('/:id/items/:itemId', authorize('ADMIN', 'SUPERVISOR'), async (req
   }
 });
 
-// ── GET /calendar ──────────────────────────────────────────────────────────────
-router.get('/calendar', async (req, res) => {
-  try {
-    const { from, to } = req.query as Record<string, string>;
-    const where: Record<string, unknown> = {};
-    if (from || to) {
-      where.scheduledAt = {};
-      if (from) (where.scheduledAt as Record<string, unknown>).gte = new Date(from);
-      if (to)   (where.scheduledAt as Record<string, unknown>).lte = new Date(to);
-    }
-
-    const audits = await prisma.audit.findMany({
-      where,
-      select: {
-        id: true, code: true, title: true, area: true, type: true,
-        status: true, scheduledAt: true,
-        auditor: { select: { id: true, name: true } },
-        _count: { select: { capaActions: true } },
-      },
-      orderBy: { scheduledAt: 'asc' },
-    });
-
-    // Detectar conflictos: mismo auditor, mismo día
-    const conflictMap: Record<string, boolean> = {};
-    const auditorDayMap: Record<string, string[]> = {};
-    for (const a of audits) {
-      const key = `${a.auditor.id}_${a.scheduledAt.toISOString().slice(0, 10)}`;
-      if (!auditorDayMap[key]) auditorDayMap[key] = [];
-      auditorDayMap[key].push(a.id);
-    }
-    for (const ids of Object.values(auditorDayMap)) {
-      if (ids.length > 1) ids.forEach(id => { conflictMap[id] = true; });
-    }
-
-    const result = audits.map(a => ({ ...a, hasConflict: !!conflictMap[a.id] }));
-    res.json(result);
-  } catch (e) {
-    res.status(500).json({ error: 'Error al obtener calendario de auditorías' });
-  }
-});
-
 // ── PATCH /:id/reschedule ──────────────────────────────────────────────────────
 const rescheduleSchema = z.object({
   scheduledAt: z.string(),
@@ -829,157 +977,6 @@ router.get('/:id/reschedule-history', async (req, res) => {
     res.json(logs);
   } catch (e) {
     res.status(500).json({ error: 'Error al obtener historial de reprogramaciones' });
-  }
-});
-
-// ── GET /analytics/trend ───────────────────────────────────────────────────────
-router.get('/analytics/trend', async (req, res) => {
-  try {
-    const months = Math.min(parseInt(req.query.months as string) || 6, 24);
-    const since = new Date();
-    since.setMonth(since.getMonth() - months + 1);
-    since.setDate(1); since.setHours(0, 0, 0, 0);
-
-    const audits = await prisma.audit.findMany({
-      where: { status: { in: ['COMPLETED', 'CLOSED'] }, completedAt: { gte: since }, score: { not: null } },
-      select: { area: true, score: true, completedAt: true },
-      orderBy: { completedAt: 'asc' },
-    });
-
-    const areas = [...new Set(audits.map(a => a.area))].sort();
-    const monthMap: Record<string, Record<string, number[]>> = {};
-
-    for (const a of audits) {
-      if (!a.completedAt || a.score === null) continue;
-      const d = new Date(a.completedAt);
-      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-      if (!monthMap[key]) monthMap[key] = {};
-      if (!monthMap[key][a.area]) monthMap[key][a.area] = [];
-      monthMap[key][a.area].push(a.score);
-    }
-
-    const rows = Object.entries(monthMap)
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([month, areaScores]) => {
-        const entry: Record<string, unknown> = { month };
-        for (const area of areas) {
-          const scores = areaScores[area];
-          entry[area] = scores ? Math.round(scores.reduce((s, v) => s + v, 0) / scores.length * 10) / 10 : null;
-        }
-        return entry;
-      });
-
-    res.json({ rows, areas });
-  } catch (e) {
-    res.status(500).json({ error: 'Error al obtener tendencia' });
-  }
-});
-
-// ── GET /analytics/recurrence ──────────────────────────────────────────────────
-// Detecta ítems que han fallado en las últimas 3 auditorías de la misma área
-router.get('/analytics/recurrence', async (req, res) => {
-  try {
-    const items = await prisma.auditItem.findMany({
-      where: { result: 'FAIL' },
-      include: {
-        section: {
-          include: {
-            audit: { select: { area: true, completedAt: true, status: true } },
-          },
-        },
-      },
-      orderBy: { section: { audit: { completedAt: 'desc' } } },
-    });
-
-    // Agrupar por área + descripción normalizada
-    const map: Record<string, { area: string; description: string; failCount: number; lastFail: string | null }> = {};
-    for (const item of items) {
-      const area = item.section.audit.area;
-      const key = `${area}::${item.description.trim().toLowerCase()}`;
-      if (!map[key]) map[key] = { area, description: item.description, failCount: 0, lastFail: null };
-      map[key].failCount++;
-      const at = item.section.audit.completedAt?.toISOString() ?? null;
-      if (at && (!map[key].lastFail || at > map[key].lastFail!)) map[key].lastFail = at;
-    }
-
-    const recurrent = Object.values(map)
-      .filter(r => r.failCount >= 3)
-      .sort((a, b) => b.failCount - a.failCount);
-
-    res.json(recurrent);
-  } catch (e) {
-    res.status(500).json({ error: 'Error al calcular reincidencias' });
-  }
-});
-
-// ── GET /analytics/efficacy ────────────────────────────────────────────────────
-router.get('/analytics/efficacy', async (req, res) => {
-  try {
-    const capas = await prisma.capaAction.findMany({
-      select: { status: true, dueDate: true, closedAt: true, createdAt: true, updatedAt: true },
-    });
-
-    const now = new Date();
-    const total = capas.length;
-    const closed = capas.filter(c => c.status === 'CLOSED');
-    const closedOnTime = closed.filter(c => c.closedAt && new Date(c.closedAt) <= new Date(c.dueDate));
-    const effective = closed.filter(c => {
-      if (!c.closedAt) return false;
-      const daysSinceClosed = (now.getTime() - new Date(c.closedAt).getTime()) / 86400000;
-      return daysSinceClosed >= 30;
-    });
-
-    res.json({
-      total,
-      closed: closed.length,
-      closedOnTime: closedOnTime.length,
-      pctOnTime: closed.length > 0 ? Math.round(closedOnTime.length / closed.length * 100) : 0,
-      effective: effective.length,
-      pctEfficacy: effective.length > 0
-        ? Math.round(effective.length / closed.filter(c => {
-            if (!c.closedAt) return false;
-            return (now.getTime() - new Date(c.closedAt).getTime()) / 86400000 >= 30;
-          }).length * 100)
-        : 0,
-    });
-  } catch (e) {
-    res.status(500).json({ error: 'Error al calcular eficacia' });
-  }
-});
-
-// ── GET /analytics/upcoming ────────────────────────────────────────────────────
-router.get('/analytics/upcoming', async (req, res) => {
-  try {
-    const now = new Date();
-    const in7 = new Date(now.getTime() + 7 * 86400000);
-
-    const [upcoming, overdueCapas, recentScores] = await Promise.all([
-      prisma.audit.findMany({
-        where: { scheduledAt: { gte: now, lte: in7 }, status: { in: ['DRAFT', 'IN_PROGRESS'] } },
-        include: { auditor: { select: { id: true, name: true } } },
-        orderBy: { scheduledAt: 'asc' },
-      }),
-      prisma.capaAction.count({
-        where: { status: { not: 'CLOSED' }, dueDate: { lt: now } },
-      }),
-      prisma.audit.findMany({
-        where: {
-          status: { in: ['COMPLETED', 'CLOSED'] },
-          completedAt: { gte: new Date(now.getTime() - 7 * 86400000) },
-          score: { not: null },
-        },
-        select: { score: true },
-      }),
-    ]);
-
-    const scores = recentScores.map(a => a.score as number);
-    const avgScoreWeek = scores.length > 0
-      ? Math.round(scores.reduce((s, v) => s + v, 0) / scores.length * 10) / 10
-      : null;
-
-    res.json({ upcoming, overdueCapas, avgScoreWeek });
-  } catch (e) {
-    res.status(500).json({ error: 'Error al obtener datos de próximas auditorías' });
   }
 });
 

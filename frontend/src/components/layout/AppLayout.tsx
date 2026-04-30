@@ -61,6 +61,7 @@ const NAV_BY_MODULE: Record<ModuleId, NavItemDef[]> = {
   ],
   audits: [
     { to: '/audits',                    icon: ClipboardCheck, label: 'Auditorías', fullLabel: 'Auditorías',  exact: true },
+    { to: '/audits/calendar',           icon: CalendarDays,   label: 'Calendario', fullLabel: 'Calendario de Auditorías' },
     { to: '/audits/findings',           icon: ClipboardX,     label: 'Hallazgos',  fullLabel: 'Hallazgos' },
     { to: '/audits/templates',          icon: FileText,       label: 'Plantillas', fullLabel: 'Plantillas' },
     { to: '/audits/reports/capas',      icon: AlertTriangle,  label: 'Rep. CAPAs', fullLabel: 'Reporte CAPAs' },
