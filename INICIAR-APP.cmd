@@ -1,40 +1,49 @@
 @echo off
-title Planta Mantenimiento - Iniciando...
+title Senz - Sistema de Mantenimiento
 SET PATH=C:\Program Files\nodejs;%PATH%
+
 echo.
-echo  =========================================
-echo   SISTEMA DE MANTENIMIENTO DE PLANTA
-echo  =========================================
+echo  ==========================================
+echo    SENZ - Sistema de Mantenimiento
+echo  ==========================================
 echo.
 
-:: Verificar que existe el archivo .env del backend
+:: Verificar .env del backend
 IF NOT EXIST "%~dp0backend\.env" (
-  echo  Creando archivo de configuracion...
-  echo DATABASE_URL="file:./prisma/dev.db" > "%~dp0backend\.env"
-  echo JWT_SECRET="planta-mtto-secret-2024-xK9mP2qL" >> "%~dp0backend\.env"
-  echo PORT=4000 >> "%~dp0backend\.env"
-  echo FRONTEND_URL="*" >> "%~dp0backend\.env"
+  echo  [!] No se encontro backend\.env
+  echo  [!] Crea el archivo con tus credenciales de Supabase.
+  echo.
+  pause
+  exit /b 1
 )
 
-echo  Iniciando backend (puerto 4000)...
-start "Backend - Puerto 4000" cmd /k "SET PATH=C:\Program Files\nodejs;%%PATH%% && cd /d ""%~dp0backend"" && npm run dev"
+:: Matar procesos anteriores en 4000 y 5173 si los hay
+for /f "tokens=5" %%a in ('netstat -ano 2^>nul ^| findstr ":4000 " ^| findstr "LISTENING"') do (
+  taskkill /PID %%a /F >nul 2>&1
+)
+for /f "tokens=5" %%a in ('netstat -ano 2^>nul ^| findstr ":5173 " ^| findstr "LISTENING"') do (
+  taskkill /PID %%a /F >nul 2>&1
+)
 
-timeout /t 4 /nobreak >nul
-
-echo  Iniciando frontend (puerto 5173)...
-start "Frontend - Puerto 5173" cmd /k "SET PATH=C:\Program Files\nodejs;%%PATH%% && cd /d ""%~dp0frontend"" && npm run dev"
+echo  Iniciando backend  (puerto 4000)...
+start "Senz-Backend"  cmd /k "SET PATH=C:\Program Files\nodejs;%%PATH%% && cd /d ""%~dp0backend"" && npm run dev"
 
 timeout /t 5 /nobreak >nul
 
+echo  Iniciando frontend (puerto 5173)...
+start "Senz-Frontend" cmd /k "SET PATH=C:\Program Files\nodejs;%%PATH%% && cd /d ""%~dp0frontend"" && npm run dev -- --host"
+
+timeout /t 6 /nobreak >nul
+
+:: Abrir navegador
+start "" "http://localhost:5173"
+
 echo.
-echo  =========================================
-echo   APP LISTA
+echo  ==========================================
+echo   APP LISTA en http://localhost:5173
 echo.
-echo   Este equipo:  http://localhost:5173
-echo   Red local:    http://192.168.254.28:5173
+echo   Red local: http://192.168.254.28:5173
 echo.
-echo   Usuario:      admin@planta.com
-echo   Contrasena:   Admin1234!
-echo  =========================================
+echo   admin@planta.com  /  Admin1234!
+echo  ==========================================
 echo.
-pause
