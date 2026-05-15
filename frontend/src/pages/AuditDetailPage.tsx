@@ -1,17 +1,76 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   ChevronLeft, ChevronDown, ChevronUp, CheckCircle2, XCircle, MinusCircle,
   AlertTriangle, Play, CheckCheck, User, X, Plus, Clock, FileDown,
+  Camera, Trash2,
 } from 'lucide-react';
 import { api } from '@/services/api';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/useToast';
 import { exportAuditPDF } from '@/lib/pdfExport';
+import { mockAudits, mockUsers } from '@/data/mockData';
 import type { Audit, AuditSection, AuditItem, AuditResult, CapaSeverity, CapaType } from '@/types';
 
 const FONT = 'IBM Plex Sans, sans-serif';
 const ACCENT = '#27ae60';
+
+// ─── Mock sections (fallback sin backend) ────────────────────────────────────
+function buildMock5SSections(): AuditSection[] {
+  const mk = (id: string, order: number, desc: string): AuditItem => ({
+    id, order, description: desc, weight: 1, result: null, notes: null, checkedAt: null,
+  });
+  return [
+    { id: 's1', order: 1, name: 'Clasificar (Seiri)', isBehavior: false, weight: 20, items: [
+      mk('i1', 1, 'Materiales innecesarios han sido identificados y retirados del área de trabajo'),
+      mk('i2', 2, 'Herramientas obsoletas o dañadas están marcadas para eliminación'),
+      mk('i3', 3, 'Solo el equipo necesario está presente en el área'),
+    ]},
+    { id: 's2', order: 2, name: 'Ordenar (Seiton)', isBehavior: false, weight: 20, items: [
+      mk('i4', 1, 'Cada artículo tiene un lugar definido y señalizado correctamente'),
+      mk('i5', 2, 'Las herramientas están organizadas y de fácil acceso'),
+      mk('i6', 3, 'Los pasillos están completamente despejados y señalizados'),
+    ]},
+    { id: 's3', order: 3, name: 'Limpiar (Seiso)', isBehavior: false, weight: 20, items: [
+      mk('i7', 1, 'El área se mantiene limpia al finalizar cada turno'),
+      mk('i8', 2, 'Los equipos están limpios y libres de residuos'),
+      mk('i9', 3, 'Los registros de limpieza están actualizados y visibles'),
+    ]},
+    { id: 's4', order: 4, name: 'Estandarizar (Seiketsu)', isBehavior: false, weight: 20, items: [
+      mk('i10', 1, 'Existen estándares visuales actualizados en el área'),
+      mk('i11', 2, 'Los procedimientos de 5S están documentados y publicados'),
+    ]},
+    { id: 's5', order: 5, name: 'Disciplina (Shitsuke)', isBehavior: true, weight: 20, items: [
+      mk('i12', 1, 'El personal demuestra conocimiento y aplicación de los estándares 5S'),
+      mk('i13', 2, 'Se realizan revisiones de seguimiento de forma regular y documentada'),
+    ]},
+  ];
+}
+
+function buildMockProcessSections(): AuditSection[] {
+  const mk = (id: string, order: number, desc: string): AuditItem => ({
+    id, order, description: desc, weight: 1, result: null, notes: null, checkedAt: null,
+  });
+  return [
+    { id: 's1', order: 1, name: 'Documentación y Procedimientos', isBehavior: false, weight: 25, items: [
+      mk('i1', 1, 'Los procedimientos operativos están actualizados y disponibles en el área'),
+      mk('i2', 2, 'El personal conoce y sigue los procedimientos establecidos'),
+    ]},
+    { id: 's2', order: 2, name: 'Calidad del Proceso', isBehavior: false, weight: 25, items: [
+      mk('i3', 1, 'Los parámetros de proceso se encuentran dentro de los rangos establecidos'),
+      mk('i4', 2, 'Los controles de calidad se realizan en los puntos definidos'),
+      mk('i5', 3, 'Los registros de producción están completos y correctamente llenados'),
+    ]},
+    { id: 's3', order: 3, name: 'Seguridad y EPP', isBehavior: true, weight: 25, items: [
+      mk('i6', 1, 'El personal utiliza el equipo de protección personal requerido'),
+      mk('i7', 2, 'Las zonas de riesgo están identificadas y señalizadas correctamente'),
+    ]},
+    { id: 's4', order: 4, name: 'Mantenimiento y Equipo', isBehavior: false, weight: 25, items: [
+      mk('i8', 1, 'Los equipos tienen su mantenimiento preventivo al día'),
+      mk('i9', 2, 'No existen equipos con fallas reportadas sin atender'),
+    ]},
+  ];
+}
 
 const STATUS_LABEL: Record<string, string> = {
   DRAFT: 'Borrador', IN_PROGRESS: 'En Curso', COMPLETED: 'Completada', CLOSED: 'Cerrada',
@@ -27,10 +86,31 @@ interface CapaModalProps {
   onCreated: () => void;
 }
 
+const WHY_PLACEHOLDERS = [
+  '¿Por qué ocurrió el incumplimiento?',
+  '¿Por qué ocurrió eso?',
+  '¿Por qué ocurrió eso?',
+  '¿Por qué ocurrió eso?',
+  '¿Cuál es la causa raíz profunda?',
+];
+
+const ISHIKAWA_CATS = [
+  { key: 'ishikawaMachine',     label: 'Máquina / Equipo',   emoji: '⚙️' },
+  { key: 'ishikawaMethod',      label: 'Método / Proceso',   emoji: '📋' },
+  { key: 'ishikawaMaterial',    label: 'Material / Insumo',  emoji: '📦' },
+  { key: 'ishikawaManpower',    label: 'Mano de Obra',       emoji: '👷' },
+  { key: 'ishikawaEnvironment', label: 'Medio Ambiente',     emoji: '🌡️' },
+] as const;
+
 function CapaModal({ auditId, auditItemId, itemDescription, onClose, onCreated }: CapaModalProps) {
   const { push } = useToast();
   const [loading, setLoading] = useState(false);
   const [users, setUsers] = useState<{ id: string; name: string }[]>([]);
+  const [showAnalysis, setShowAnalysis] = useState(false);
+  const [showEvidence, setShowEvidence] = useState(false);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [createdCapaId, setCreatedCapaId] = useState<string | null>(null);
+  const [evidencePhotos, setEvidencePhotos] = useState<string[]>([]);
   const [form, setForm] = useState({
     type: 'CORRECTIVE' as CapaType,
     severity: 'MINOR' as CapaSeverity,
@@ -38,10 +118,15 @@ function CapaModal({ auditId, auditItemId, itemDescription, onClose, onCreated }
     rootCause: '',
     assignedToId: '',
     dueDate: new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10),
+    why1: '', why2: '', why3: '', why4: '', why5: '',
+    ishikawaMachine: '', ishikawaMethod: '', ishikawaMaterial: '',
+    ishikawaManpower: '', ishikawaEnvironment: '',
   });
 
   useEffect(() => {
-    api.get<{ id: string; name: string }[]>('/users').then(r => setUsers(r.data)).catch(() => {});
+    api.get<{ id: string; name: string }[]>('/users')
+      .then(r => setUsers(r.data))
+      .catch(() => setUsers(mockUsers.map(u => ({ id: String(u.id), name: u.name }))));
   }, []);
 
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }));
@@ -51,18 +136,49 @@ function CapaModal({ auditId, auditItemId, itemDescription, onClose, onCreated }
     if (!form.assignedToId || !form.description) { push('Completa todos los campos obligatorios', 'error'); return; }
     setLoading(true);
     try {
-      await api.post(`/audits/${auditId}/capa`, {
+      const res = await api.post<{ id: string }>(`/audits/${auditId}/capa`, {
         ...form,
         auditItemId,
         dueDate: new Date(form.dueDate).toISOString(),
       });
+      setCreatedCapaId(res.data.id);
       push('Acción CAPA creada', 'success');
       onCreated();
-      onClose();
+      if (!showEvidence) { onClose(); }
     } catch {
       push('Error al crear CAPA', 'error');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !createdCapaId) return;
+    setUploadingPhoto(true);
+    try {
+      const fd = new FormData();
+      fd.append('photo', file);
+      const res = await api.post<{ photos: string[] }>(`/audits/capa/${createdCapaId}/evidence`, fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      setEvidencePhotos(res.data.photos);
+      push('Foto subida', 'success');
+    } catch {
+      push('Error al subir foto', 'error');
+    } finally {
+      setUploadingPhoto(false);
+      e.target.value = '';
+    }
+  };
+
+  const handlePhotoDelete = async (url: string) => {
+    if (!createdCapaId) return;
+    try {
+      const res = await api.delete<{ photos: string[] }>(`/audits/capa/${createdCapaId}/evidence`, { data: { url } });
+      setEvidencePhotos(res.data.photos);
+    } catch {
+      push('Error al eliminar foto', 'error');
     }
   };
 
@@ -126,11 +242,6 @@ function CapaModal({ auditId, auditItemId, itemDescription, onClose, onCreated }
             <textarea style={{ ...inputStyle, resize: 'vertical', minHeight: 80 }} value={form.description} onChange={e => set('description', e.target.value)} placeholder="¿Qué se debe hacer para corregir o prevenir este hallazgo?" required />
           </div>
 
-          <div>
-            <label style={labelStyle}>Causa raíz (opcional)</label>
-            <input style={inputStyle} value={form.rootCause} onChange={e => set('rootCause', e.target.value)} placeholder="¿Por qué ocurrió este incumplimiento?" />
-          </div>
-
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <div>
               <label style={labelStyle}>Responsable *</label>
@@ -145,9 +256,116 @@ function CapaModal({ auditId, auditItemId, itemDescription, onClose, onCreated }
             </div>
           </div>
 
-          <button type="submit" disabled={loading} style={{ padding: '12px', background: '#e74c3c', color: '#fff', border: 'none', borderRadius: 10, cursor: 'pointer', fontFamily: FONT, fontSize: 14, fontWeight: 600, marginTop: 4, opacity: loading ? .7 : 1 }}>
-            {loading ? 'Guardando…' : 'Registrar Acción CAPA'}
-          </button>
+          {/* ── Análisis de Causa Raíz (colapsable) ─────────────────────────── */}
+          <div style={{ border: '1px solid #eee', borderRadius: 10, overflow: 'hidden' }}>
+            <button type="button" onClick={() => setShowAnalysis(!showAnalysis)} style={{
+              width: '100%', padding: '10px 14px', background: showAnalysis ? '#fff8f0' : '#fafafa',
+              border: 'none', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+              fontFamily: FONT, fontSize: 12, fontWeight: 600, color: '#e67e22',
+            }}>
+              <span>Análisis de Causa Raíz (5 Por Qués + Ishikawa)</span>
+              {showAnalysis ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+            </button>
+
+            {showAnalysis && (
+              <div style={{ padding: '14px 14px 4px', background: '#fff', borderTop: '1px solid #eee' }}>
+                {/* 5 Por Qués */}
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: '#e67e22', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '.5px' }}>5 Por Qués</div>
+                  {(['why1','why2','why3','why4','why5'] as const).map((k, i) => (
+                    <div key={k} style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'flex-start' }}>
+                      <div style={{ width: 22, height: 22, borderRadius: '50%', background: '#e67e22', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, flexShrink: 0, marginTop: 8 }}>{i + 1}</div>
+                      <input
+                        style={{ ...inputStyle, flex: 1, opacity: i > 0 && !form[`why${i}` as 'why1'] ? .4 : 1 }}
+                        value={form[k]}
+                        onChange={e => set(k, e.target.value)}
+                        placeholder={WHY_PLACEHOLDERS[i]}
+                        disabled={i > 0 && !form[`why${i}` as 'why1']}
+                      />
+                    </div>
+                  ))}
+                </div>
+
+                {/* Ishikawa */}
+                <div style={{ borderTop: '1px solid #f0f0f0', paddingTop: 14, marginBottom: 14 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: '#2980b9', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '.5px' }}>Diagrama de Ishikawa</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                    {ISHIKAWA_CATS.map(({ key, label, emoji }) => (
+                      <div key={key}>
+                        <label style={{ ...labelStyle, color: '#2980b9' }}>{emoji} {label}</label>
+                        <textarea
+                          style={{ ...inputStyle, minHeight: 56, resize: 'vertical', fontSize: 12 }}
+                          value={form[key]}
+                          onChange={e => set(key, e.target.value)}
+                          placeholder={`Causas relacionadas con ${label.toLowerCase()}…`}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* ── Evidencia fotográfica (colapsable — disponible tras crear) ─── */}
+          <div style={{ border: '1px solid #eee', borderRadius: 10, overflow: 'hidden' }}>
+            <button type="button" onClick={() => setShowEvidence(!showEvidence)} style={{
+              width: '100%', padding: '10px 14px', background: showEvidence ? '#f0f9ff' : '#fafafa',
+              border: 'none', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+              fontFamily: FONT, fontSize: 12, fontWeight: 600, color: '#2980b9',
+            }}>
+              <span>Evidencia Fotográfica {evidencePhotos.length > 0 ? `(${evidencePhotos.length})` : ''}</span>
+              {showEvidence ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+            </button>
+
+            {showEvidence && (
+              <div style={{ padding: '14px', background: '#fff', borderTop: '1px solid #eee' }}>
+                {!createdCapaId ? (
+                  <p style={{ margin: 0, fontSize: 12, color: '#888', fontFamily: FONT, textAlign: 'center', padding: '8px 0' }}>
+                    Guarda la CAPA primero para agregar fotos de evidencia.
+                  </p>
+                ) : (
+                  <>
+                    <label style={{
+                      display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px',
+                      border: '2px dashed #ddd', borderRadius: 8, cursor: 'pointer',
+                      fontSize: 12, color: '#888', fontFamily: FONT, marginBottom: 12,
+                    }}>
+                      <Camera size={16} />
+                      {uploadingPhoto ? 'Subiendo…' : 'Agregar foto (JPG, PNG, WebP)'}
+                      <input type="file" accept="image/*" style={{ display: 'none' }} onChange={handlePhotoUpload} disabled={uploadingPhoto} />
+                    </label>
+                    {evidencePhotos.length > 0 && (
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+                        {evidencePhotos.map(url => (
+                          <div key={url} style={{ position: 'relative', borderRadius: 8, overflow: 'hidden', aspectRatio: '1', background: '#f5f5f5' }}>
+                            <img src={url} alt="evidencia" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                            <button
+                              type="button"
+                              onClick={() => handlePhotoDelete(url)}
+                              style={{ position: 'absolute', top: 4, right: 4, background: '#e74c3c', border: 'none', borderRadius: '50%', width: 22, height: 22, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                            >
+                              <Trash2 size={11} color="#fff" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+
+          {!createdCapaId ? (
+            <button type="submit" disabled={loading} style={{ padding: '12px', background: '#e74c3c', color: '#fff', border: 'none', borderRadius: 10, cursor: 'pointer', fontFamily: FONT, fontSize: 14, fontWeight: 600, marginTop: 4, opacity: loading ? .7 : 1 }}>
+              {loading ? 'Guardando…' : 'Registrar Acción CAPA'}
+            </button>
+          ) : (
+            <button type="button" onClick={onClose} style={{ padding: '12px', background: '#27ae60', color: '#fff', border: 'none', borderRadius: 10, cursor: 'pointer', fontFamily: FONT, fontSize: 14, fontWeight: 600, marginTop: 4 }}>
+              Listo — Cerrar
+            </button>
+          )}
         </form>
       </div>
     </div>
@@ -369,6 +587,7 @@ export default function AuditDetailPage() {
   const [audit, setAudit] = useState<Audit | null>(null);
   const [loading, setLoading] = useState(true);
   const [completing, setCompleting] = useState(false);
+  const isMock = useRef(false);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -376,7 +595,35 @@ export default function AuditDetailPage() {
       const { data } = await api.get<Audit>(`/audits/${id}`);
       setAudit(data);
     } catch {
-      push('Error al cargar auditoría', 'error');
+      const m = mockAudits.find(a => a.id === id);
+      if (m) {
+        isMock.current = true;
+        const statusMap: Record<string, Audit['status']> = {
+          CLOSED: 'CLOSED', SCHEDULED: 'DRAFT', IN_PROGRESS: 'IN_PROGRESS',
+        };
+        const auditType: Audit['type'] = m.type === '5S' ? 'FIVE_S' : 'PROCESS';
+        const status = statusMap[m.status] ?? 'DRAFT';
+        const sections = m.type === '5S' ? buildMock5SSections() : buildMockProcessSections();
+        if (status === 'CLOSED' || status === 'COMPLETED') {
+          sections.forEach(s => s.items.forEach((item, idx) => {
+            item.result = ((m.score ?? 80) >= 90 || idx % 4 !== 0) ? 'PASS' : 'FAIL';
+            item.checkedAt = m.date + 'T10:00:00Z';
+          }));
+        }
+        setAudit({
+          id: m.id, code: m.code, title: m.title, type: auditType, status, area: m.area,
+          score: m.score, notes: null,
+          scheduledAt: m.date + 'T09:00:00Z',
+          startedAt: status !== 'DRAFT' ? m.date + 'T09:00:00Z' : null,
+          completedAt: (status === 'COMPLETED' || status === 'CLOSED') ? m.date + 'T11:00:00Z' : null,
+          auditor: { id: '2', name: m.auditor },
+          sections,
+          createdAt: m.date + 'T00:00:00Z',
+          updatedAt: m.date + 'T00:00:00Z',
+        });
+      } else {
+        push('Error al cargar auditoría', 'error');
+      }
     } finally {
       setLoading(false);
     }
@@ -386,6 +633,11 @@ export default function AuditDetailPage() {
 
   const handleStart = async () => {
     if (!id) return;
+    if (isMock.current) {
+      setAudit(a => a ? { ...a, status: 'IN_PROGRESS', startedAt: new Date().toISOString() } : a);
+      push('Auditoría iniciada', 'success');
+      return;
+    }
     try {
       await api.patch(`/audits/${id}/start`);
       setAudit(a => a ? { ...a, status: 'IN_PROGRESS', startedAt: new Date().toISOString() } : a);
@@ -396,6 +648,16 @@ export default function AuditDetailPage() {
   const handleComplete = async () => {
     if (!id) return;
     setCompleting(true);
+    if (isMock.current) {
+      const allItems = audit?.sections?.flatMap(s => s.items) ?? [];
+      const passed = allItems.filter(i => i.result === 'PASS').length;
+      const answered = allItems.filter(i => i.result !== null).length;
+      const score = answered > 0 ? Math.round(passed / answered * 100) : 0;
+      setAudit(a => a ? { ...a, status: 'COMPLETED', score, completedAt: new Date().toISOString() } : a);
+      push(`Auditoría completada — Puntaje: ${score}%`, 'success');
+      setCompleting(false);
+      return;
+    }
     try {
       const { data } = await api.patch<Audit>(`/audits/${id}/complete`);
       setAudit(a => a ? { ...a, status: 'COMPLETED', score: data.score, completedAt: data.completedAt } : a);
@@ -405,6 +667,19 @@ export default function AuditDetailPage() {
 
   const handleUpdateItem = useCallback(async (itemId: string, result: AuditResult, notes?: string) => {
     if (!id) return;
+    if (isMock.current) {
+      setAudit(prev => {
+        if (!prev || !prev.sections) return prev;
+        return {
+          ...prev,
+          sections: prev.sections.map(s => ({
+            ...s,
+            items: s.items.map(i => i.id === itemId ? { ...i, result, notes: notes ?? null } : i),
+          })),
+        };
+      });
+      return;
+    }
     try {
       const { data: updatedItem } = await api.patch<AuditItem>(`/audits/${id}/items/${itemId}`, { result, notes });
       setAudit(prev => {

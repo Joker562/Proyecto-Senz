@@ -1,8 +1,9 @@
-import { useEffect, useState, FormEvent } from 'react';
+import { useEffect, useState, useRef, FormEvent } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '@/services/api';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/useToast';
+import { mockWorkOrders, mockUsers } from '@/data/mockData';
 import { WorkOrder, WorkOrderStatus } from '@/types';
 
 /* ── palette ── */
@@ -60,6 +61,7 @@ export default function WorkOrderDetailPage() {
   const [saving, setSaving]     = useState(false);
   const [technicians, setTechnicians] = useState<Technician[]>([]);
   const [assignedId, setAssignedId]   = useState('');
+  const isMock = useRef(false);
 
   // ── Solicitud de partes ───────────────────────────────────────────
   const [showParts, setShowParts]     = useState(false);
@@ -78,6 +80,29 @@ export default function WorkOrderDetailPage() {
       const { data } = await api.get<DetailedOrder>(`/work-orders/${id}`);
       setOrder(data);
       setAssignedId(data.assignedTo?.id ?? '');
+    } catch {
+      const found = mockWorkOrders.find(w => w.id === id);
+      if (found) {
+        isMock.current = true;
+        const techUser = found.tech !== '—' ? mockUsers.find(u => u.name === found.tech) : undefined;
+        setOrder({
+          id: found.id, code: found.id, title: found.title,
+          description: `Mantenimiento programado — ${found.asset}`,
+          type: 'PREVENTIVE', status: found.status, priority: found.priority,
+          scheduledAt: found.scheduledAt ? found.scheduledAt + 'T08:00:00Z' : undefined,
+          startedAt: found.status === 'IN_PROGRESS' ? found.date + 'T08:00:00Z' : undefined,
+          completedAt: found.status === 'COMPLETED' ? found.date + 'T10:00:00Z' : undefined,
+          estimatedHours: 4,
+          actualHours: found.status === 'COMPLETED' ? 3.5 : undefined,
+          asset: { id: 'a1', code: 'ASSET', name: found.asset, description: '', location: found.area, area: found.area, status: 'OPERATIONAL' },
+          assignedTo: techUser ? { id: String(techUser.id), name: techUser.name } : undefined,
+          createdBy: { id: '1', name: 'Administrador' },
+          createdAt: found.date + 'T00:00:00Z',
+          updatedAt: found.date + 'T00:00:00Z',
+          comments: [],
+        });
+        setAssignedId(techUser ? String(techUser.id) : '');
+      }
     } finally {
       setLoading(false);
     }
@@ -89,11 +114,22 @@ export default function WorkOrderDetailPage() {
     if (!canEdit) return;
     api.get<Technician[]>('/users')
       .then(({ data }) => setTechnicians(data.filter((u: Technician) => (u.role === 'TECHNICIAN' || u.role === 'SUPERVISOR') && u.active !== false)))
-      .catch(() => {});
+      .catch(() => {
+        setTechnicians(
+          mockUsers
+            .filter(u => (u.role === 'TECHNICIAN' || u.role === 'SUPERVISOR') && u.status === 'ACTIVE')
+            .map(u => ({ id: String(u.id), name: u.name, role: u.role, active: true }))
+        );
+      });
   }, [canEdit]);
 
   const changeStatus = async (status: WorkOrderStatus) => {
     if (!id || !order) return;
+    if (isMock.current) {
+      setOrder({ ...order, status });
+      push(`Estado actualizado a ${STATUS_LABELS[status]}`, 'success');
+      return;
+    }
     try {
       await api.patch(`/work-orders/${id}/status`, { status });
       setOrder({ ...order, status });
@@ -106,6 +142,17 @@ export default function WorkOrderDetailPage() {
   const addNote = async () => {
     if (!note.trim() || !id) return;
     setSaving(true);
+    if (isMock.current) {
+      const newComment = {
+        id: Date.now().toString(), content: note.trim(),
+        createdAt: new Date().toISOString(),
+        author: { id: '1', name: 'Administrador' },
+      };
+      setOrder(o => o ? { ...o, comments: [...o.comments, newComment] } : o);
+      setNote('');
+      setSaving(false);
+      return;
+    }
     try {
       await api.post(`/work-orders/${id}/comments`, { content: note.trim() });
       setNote('');
@@ -120,6 +167,12 @@ export default function WorkOrderDetailPage() {
   const reassign = async (techId: string) => {
     if (!id) return;
     setAssignedId(techId);
+    if (isMock.current) {
+      const tech = technicians.find(t => t.id === techId);
+      setOrder(o => o ? { ...o, assignedTo: tech ? { id: tech.id, name: tech.name } : undefined } : o);
+      push('Técnico reasignado', 'success');
+      return;
+    }
     try {
       await api.patch(`/work-orders/${id}/assign`, { assignedToId: techId || null });
       push('Técnico reasignado', 'success');
@@ -150,6 +203,10 @@ export default function WorkOrderDetailPage() {
     if (partsItems.some((p) => !p.name.trim())) { setPartsError('Todos los ítems deben tener nombre'); return; }
     setPartsSaving(true);
     setPartsError('');
+    if (isMock.current) {
+      setTimeout(() => { push('Solicitud enviada por correo', 'success'); setShowParts(false); setPartsSaving(false); }, 600);
+      return;
+    }
     try {
       await api.post('/part-requests', {
         workOrderId: id,
