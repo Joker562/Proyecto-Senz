@@ -1,22 +1,18 @@
-import { useEffect, useState, FormEvent } from 'react';
-import { api } from '@/services/api';
+import { useState, FormEvent } from 'react';
 import { useToast } from '@/hooks/useToast';
 import { Plus, Trash2, CheckSquare, GripVertical } from 'lucide-react';
 import Modal from '@/components/ui/Modal';
+import { mockChecklistTemplates, type MockChecklistTemplate } from '@/data/mockData';
 
-interface TemplateItem { id: string; order: number; description: string; required: boolean }
-interface Template { id: string; name: string; description?: string; items: TemplateItem[] }
+let _nextId = mockChecklistTemplates.length + 1;
 
 export default function ChecklistTemplatesPage() {
   const { push } = useToast();
-  const [templates, setTemplates] = useState<Template[]>([]);
+  const [templates, setTemplates] = useState<MockChecklistTemplate[]>(mockChecklistTemplates);
   const [showCreate, setShowCreate] = useState(false);
   const [form, setForm] = useState({ name: '', description: '' });
   const [items, setItems] = useState<{ description: string; required: boolean }[]>([{ description: '', required: false }]);
   const [saving, setSaving] = useState(false);
-
-  const fetch = () => api.get<Template[]>('/checklists/templates').then(({ data }) => setTemplates(data));
-  useEffect(() => { fetch(); }, []);
 
   const addItem = () => setItems((prev) => [...prev, { description: '', required: false }]);
   const removeItem = (i: number) => setItems((prev) => prev.filter((_, j) => j !== i));
@@ -28,21 +24,29 @@ export default function ChecklistTemplatesPage() {
     const validItems = items.filter((i) => i.description.trim());
     if (!validItems.length) return push('Agrega al menos un item', 'warning');
     setSaving(true);
-    try {
-      await api.post('/checklists/templates', { ...form, items: validItems });
-      push('Plantilla creada', 'success');
-      setShowCreate(false);
-      setForm({ name: '', description: '' });
-      setItems([{ description: '', required: false }]);
-      fetch();
-    } catch { push('Error al crear plantilla', 'error'); }
-    finally { setSaving(false); }
+    await new Promise((r) => setTimeout(r, 400)); // simulate save delay
+    const newTemplate: MockChecklistTemplate = {
+      id: `CHK-${String(_nextId++).padStart(3, '0')}`,
+      name: form.name,
+      description: form.description || undefined,
+      items: validItems.map((item, idx) => ({
+        id: `ni${Date.now()}-${idx}`,
+        order: idx + 1,
+        description: item.description,
+        required: item.required,
+      })),
+    };
+    setTemplates((prev) => [...prev, newTemplate]);
+    push('Plantilla creada', 'success');
+    setShowCreate(false);
+    setForm({ name: '', description: '' });
+    setItems([{ description: '', required: false }]);
+    setSaving(false);
   };
 
-  const deleteTemplate = async (id: string) => {
-    await api.delete(`/checklists/templates/${id}`);
+  const deleteTemplate = (id: string) => {
+    setTemplates((prev) => prev.filter((t) => t.id !== id));
     push('Plantilla eliminada', 'success');
-    fetch();
   };
 
   return (

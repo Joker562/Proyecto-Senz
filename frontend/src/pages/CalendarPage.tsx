@@ -1,10 +1,8 @@
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { ChevronLeft, ChevronRight, Calendar, Wrench, ClipboardList } from 'lucide-react';
-import { api } from '@/services/api';
-import { WorkOrder } from '@/types';
+import { mockWorkOrders, mockMaintenancePlans } from '@/data/mockData';
 import { cn } from '@/lib/utils';
 
-interface Plan { id: string; name: string; nextDue: string; type: string; asset: { name: string } }
 interface CalEvent { id: string; title: string; date: Date; color: string; icon: 'ot' | 'plan'; priority?: string }
 
 type ViewMode = 'month' | 'week' | 'day' | 'range';
@@ -25,40 +23,34 @@ function isoDate(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+// Build events from mock data (synchronous, no API call)
+const allEvents: CalEvent[] = [
+  ...mockWorkOrders
+    .filter((o) => o.scheduledAt)
+    .map((o) => ({
+      id: o.id,
+      title: o.title,
+      date: new Date(o.scheduledAt!),
+      color: PRIORITY_COLORS[o.priority] ?? PRIORITY_COLORS.MEDIUM,
+      icon: 'ot' as const,
+      priority: o.priority,
+    })),
+  ...mockMaintenancePlans.map((p) => ({
+    id: p.id,
+    title: `${p.asset.name} — ${p.name}`,
+    date: new Date(p.nextDue),
+    color: PLAN_COLOR,
+    icon: 'plan' as const,
+  })),
+];
+
 export default function CalendarPage() {
   const today = useMemo(() => new Date(), []);
   const [current, setCurrent] = useState(new Date(today.getFullYear(), today.getMonth(), 1));
-  const [allEvents, setAllEvents] = useState<CalEvent[]>([]);
   const [selected, setSelected]   = useState<Date | null>(null);
   const [viewMode, setViewMode]   = useState<ViewMode>('month');
   const [rangeFrom, setRangeFrom] = useState('');
   const [rangeTo, setRangeTo]     = useState('');
-
-  const fetchData = useCallback(async () => {
-    const [otsRes, plansRes] = await Promise.all([
-      api.get<{ data: WorkOrder[] }>('/work-orders', { params: { limit: 500 } }),
-      api.get<Plan[]>('/maintenance-plans', { params: { active: 'true' } }),
-    ]);
-
-    const otEvents: CalEvent[] = otsRes.data.data
-      .filter((o) => o.scheduledAt)
-      .map((o) => ({
-        id: o.id, title: o.title, date: new Date(o.scheduledAt!),
-        color: PRIORITY_COLORS[o.priority] ?? PRIORITY_COLORS.MEDIUM,
-        icon: 'ot', priority: o.priority,
-      }));
-
-    const planEvents: CalEvent[] = plansRes.data
-      .filter((p) => p.nextDue)
-      .map((p) => ({
-        id: p.id, title: `${p.asset.name} — ${p.name}`,
-        date: new Date(p.nextDue), color: PLAN_COLOR, icon: 'plan',
-      }));
-
-    setAllEvents([...otEvents, ...planEvents]);
-  }, []);
-
-  useEffect(() => { fetchData(); }, [fetchData]);
 
   // ── Rangos según modo de vista ─────────────────────────────────
   const { rangeStart, rangeEnd } = useMemo(() => {
@@ -93,7 +85,7 @@ export default function CalendarPage() {
   const filteredEvents = useMemo(() => {
     if (!rangeStart || !rangeEnd) return allEvents;
     return allEvents.filter((e) => e.date >= rangeStart && e.date <= rangeEnd);
-  }, [allEvents, rangeStart, rangeEnd]);
+  }, [rangeStart, rangeEnd]);
 
   const eventsForDay = (date: Date) => filteredEvents.filter((e) => sameDay(e.date, date));
   const selectedEvents = selected ? eventsForDay(selected) : [];
@@ -295,14 +287,14 @@ export default function CalendarPage() {
                   {date.getDate()}
                 </div>
                 <div className="space-y-0.5">
-                  {dayEvents.slice(0, 3).map((ev) => (
+                  {dayEvents.slice(0, 2).map((ev) => (
                     <div key={ev.id} className={cn('text-xs px-1 py-0.5 rounded truncate flex items-center gap-1', ev.color)}>
                       {ev.icon === 'ot' ? <Wrench size={9} className="shrink-0" /> : <Calendar size={9} className="shrink-0" />}
                       <span className="truncate">{ev.title}</span>
                     </div>
                   ))}
-                  {dayEvents.length > 3 && (
-                    <p className="text-xs text-muted-foreground pl-1">+{dayEvents.length - 3} mas</p>
+                  {dayEvents.length > 2 && (
+                    <p className="text-xs text-muted-foreground pl-1">+{dayEvents.length - 2} más</p>
                   )}
                 </div>
               </div>
@@ -358,15 +350,12 @@ export default function CalendarPage() {
             </span>
           </h3>
           {selectedEvents.length === 0 ? (
-            <p className="text-muted-foreground text-sm">Sin actividades este dia.</p>
+            <p className="text-muted-foreground text-sm">Sin actividades este día.</p>
           ) : selectedEvents.map((ev) => (
             <div key={ev.id} className={cn('flex items-center gap-2 px-3 py-2 rounded-lg text-sm', ev.color)}>
               {ev.icon === 'ot' ? <Wrench size={14} className="shrink-0" /> : <Calendar size={14} className="shrink-0" />}
               <span className="font-medium">{ev.title}</span>
-              <span className="ml-auto text-xs opacity-70">
-                {ev.date.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' })}
-              </span>
-              <span className="text-xs opacity-70">{ev.icon === 'ot' ? 'OT' : 'Plan'}</span>
+              <span className="ml-auto text-xs opacity-70">{ev.icon === 'ot' ? 'OT' : 'Plan'}</span>
             </div>
           ))}
         </div>

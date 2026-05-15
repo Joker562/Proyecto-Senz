@@ -30,6 +30,8 @@ import express from 'express';
 import cors from 'cors';
 import { setupSocket } from './socket';
 import { startAutoOTCron } from './services/autoOT';
+import { startAuditCron } from './services/auditCron';
+import { initNotifications } from './services/notifications';
 import { UPLOAD_DIR } from './services/upload';
 import authRouter from './routes/auth';
 import workOrdersRouter from './routes/workOrders';
@@ -44,12 +46,15 @@ import areasRouter from './routes/areas';
 import settingsRouter from './routes/settings';
 import partRequestRouter from './routes/partRequest';
 import auditsRouter from './routes/audits';
+import notificationsRouter from './routes/notifications';
+import emailRouter from './routes/email';
 
 const app = express();
 const httpServer = http.createServer(app);
 const io = setupSocket(httpServer);
 
 app.set('io', io);
+initNotifications(io);
 
 app.use(cors({ origin: process.env.FRONTEND_URL || '*' }));
 app.use(express.json({ limit: '2mb' }));
@@ -70,6 +75,8 @@ app.use('/api/areas', areasRouter);
 app.use('/api/settings', settingsRouter);
 app.use('/api/part-requests', partRequestRouter);
 app.use('/api/audits', auditsRouter);
+app.use('/api/notifications', notificationsRouter);
+app.use('/api/email', emailRouter);
 
 app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   console.error(err);
@@ -77,6 +84,7 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
 });
 
 startAutoOTCron();
+startAuditCron();
 
 const PORT = process.env.PORT || 4000;
 httpServer.listen(Number(PORT), '0.0.0.0', () => {

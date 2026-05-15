@@ -7,7 +7,7 @@ export function connectSocket(token: string): Socket {
 
   socket = io(window.location.origin, {
     auth: { token },
-    transports: ['websocket'],
+    transports: ['polling', 'websocket'],
   });
 
   socket.on('connect_error', (err) => console.error('[Socket]', err.message));

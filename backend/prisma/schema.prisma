@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "sqlite"
   url      = env("DATABASE_URL")
 }
 
@@ -25,13 +25,29 @@ model User {
   checklistItemsDone WorkOrderChecklistItem[]
   usageLogs          AssetUsageLog[]
 
-  // AuditorÃ­as
-  auditsAsAuditor   Audit[]      @relation("AuditAuditor")
-  auditItemsChecked AuditItem[]  @relation("AuditItemChecker")
-  capaAssigned      CapaAction[] @relation("CapaAssigned")
-  capaCreated       CapaAction[] @relation("CapaCreated")
+  // Auditorías
+  auditsAsAuditor   Audit[]        @relation("AuditAuditor")
+  auditItemsChecked AuditItem[]    @relation("AuditItemChecker")
+  capaAssigned      CapaAction[]   @relation("CapaAssigned")
+  capaCreated       CapaAction[]   @relation("CapaCreated")
+  notifications     Notification[]
 
   @@map("users")
+}
+
+model Notification {
+  id          String   @id @default(cuid())
+  type        String
+  referenceId String
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  read        Boolean  @default(false)
+  message     String
+  link        String?
+  createdAt   DateTime @default(now())
+
+  @@unique([type, referenceId, userId])
+  @@map("notifications")
 }
 
 model Asset {

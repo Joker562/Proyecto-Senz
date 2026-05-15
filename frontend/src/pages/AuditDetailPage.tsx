@@ -202,7 +202,7 @@ interface AuditItemCardProps {
 function AuditItemCard({ item, auditId, auditStatus, onUpdate, onCapaCreated }: AuditItemCardProps) {
   const [updating, setUpdating] = useState(false);
   const [notes, setNotes] = useState(item.notes ?? '');
-  const [notesOpen, setNotesOpen] = useState(!!item.notes);
+  const [_notesOpen, setNotesOpen] = useState(!!item.notes);
   const [capaOpen, setCapaOpen] = useState(false);
   const canEdit = auditStatus === 'IN_PROGRESS';
 

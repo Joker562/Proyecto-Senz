@@ -1,5 +1,72 @@
 import nodemailer from 'nodemailer';
 
+// ── Transporter factory (reutilizable) ───────────────────────────────────────
+async function createTransporter(): Promise<{ t: nodemailer.Transporter; preview: boolean }> {
+  const host   = process.env.SMTP_HOST || '';
+  const user   = process.env.SMTP_USER || '';
+  const pass   = process.env.SMTP_PASS || '';
+  const port   = Number(process.env.SMTP_PORT) || 587;
+  const secure = process.env.SMTP_SECURE === 'true';
+
+  if (!host || !user || !pass) {
+    const testAccount = await nodemailer.createTestAccount();
+    return {
+      t: nodemailer.createTransport({
+        host: 'smtp.ethereal.email', port: 587, secure: false,
+        auth: { user: testAccount.user, pass: testAccount.pass },
+      }),
+      preview: true,
+    };
+  }
+  return {
+    t: nodemailer.createTransport({ host, port, secure, auth: { user, pass } }),
+    preview: false,
+  };
+}
+
+// ── Notificación genérica ────────────────────────────────────────────────────
+export interface NotificationEmailOptions {
+  to: string;
+  name: string;
+  subject: string;
+  html: string;
+}
+
+export async function sendNotificationEmail(opts: NotificationEmailOptions): Promise<{ previewUrl?: string }> {
+  const { t, preview } = await createTransporter();
+  const from = process.env.SMTP_FROM || process.env.SMTP_USER || 'notificaciones@senz.mx';
+
+  const info = await t.sendMail({
+    from: `"Senz — Gestión Industrial" <${from}>`,
+    to: opts.to,
+    subject: opts.subject,
+    html: `
+<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"></head>
+<body style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;color:#1c1c1c">
+  <div style="background:#e67e22;padding:14px 22px;border-radius:6px 6px 0 0">
+    <h2 style="color:#fff;margin:0;font-size:16px">Senz — Sistema de Gestión Industrial</h2>
+  </div>
+  <div style="border:1px solid #e0e0e0;border-top:none;padding:22px">
+    <p style="margin:0 0 10px;font-size:14px">Hola, <strong>${opts.name}</strong></p>
+    ${opts.html}
+    <hr style="border:none;border-top:1px solid #eee;margin:20px 0">
+    <p style="font-size:11px;color:#bbb;margin:0">Mensaje automático — no responder a este correo.</p>
+  </div>
+</body>
+</html>`,
+  });
+
+  if (preview) {
+    const url = nodemailer.getTestMessageUrl(info);
+    console.log('[Email] Notificación (Ethereal):', url);
+    return { previewUrl: url || undefined };
+  }
+  return {};
+}
+
+// ── Partes / Refacciones ─────────────────────────────────────────────────────
 export interface PartItem {
   name: string;
   quantity: number;
@@ -19,36 +86,10 @@ export interface PartsRequestOptions {
 }
 
 export async function sendPartsRequestEmail(opts: PartsRequestOptions): Promise<{ previewUrl?: string }> {
-  const host   = process.env.SMTP_HOST   || '';
-  const user   = process.env.SMTP_USER   || '';
-  const pass   = process.env.SMTP_PASS   || '';
-  const port   = Number(process.env.SMTP_PORT)  || 587;
-  const secure = process.env.SMTP_SECURE === 'true';
-  const from   = process.env.SMTP_FROM   || user;
-
-  let transporter: nodemailer.Transporter;
-  let previewUrl = false;
-
-  if (!host || !user || !pass) {
-    // Sin SMTP configurado → usar Ethereal (cuenta de prueba temporal)
-    const testAccount = await nodemailer.createTestAccount();
-    transporter = nodemailer.createTransport({
-      host: 'smtp.ethereal.email',
-      port: 587,
-      secure: false,
-      auth: { user: testAccount.user, pass: testAccount.pass },
-    });
-    previewUrl = true;
+  const { t: transporter, preview } = await createTransporter();
+  const from = process.env.SMTP_FROM || process.env.SMTP_USER || 'test@ethereal.email';
+  if (preview) {
     console.log('⚠️  SMTP no configurado — usando Ethereal (correo de prueba)');
-    console.log('   SMTP_HOST:', host || '(vacío)', '| SMTP_USER:', user || '(vacío)');
-  } else {
-    console.log(`📧 Usando SMTP real: ${host} | usuario: ${user}`);
-    transporter = nodemailer.createTransport({
-      host,
-      port,
-      secure,
-      auth: { user, pass },
-    });
   }
 
   const partsRows = opts.parts
@@ -132,13 +173,13 @@ export async function sendPartsRequestEmail(opts: PartsRequestOptions): Promise<
 </html>`;
 
   const info = await transporter.sendMail({
-    from: `"Mantenimiento Industrial" <${from || 'test@ethereal.email'}>`,
+    from: `"Mantenimiento Industrial" <${from}>`,
     to: opts.recipientEmail,
     subject: `[PARTES] OT ${opts.workOrderCode} — ${opts.assetName}`,
     html,
   });
 
-  if (previewUrl) {
+  if (preview) {
     const url = nodemailer.getTestMessageUrl(info);
     console.log('');
     console.log('📧 ─────────────────────────────────────────────');

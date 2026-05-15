@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../services/prisma';
 import { authenticate, authorize } from '../middleware/auth';
+import { sendNotification, notifyByRole } from '../services/notifications';
 
 const router = Router();
 router.use(authenticate);
@@ -414,6 +415,23 @@ router.post('/', authorize('ADMIN', 'SUPERVISOR'), async (req, res) => {
         },
       },
     });
+    // Notificar al auditor asignado (no bloquea la respuesta)
+    sendNotification({
+      type: 'AUDIT_ASSIGNED',
+      referenceId: audit.id,
+      userId: auditorId,
+      message: `Se te asignó la auditoría "${title}" (${area}) — ${audit.code}`,
+      link: `/audits/${audit.id}`,
+      emailSubject: `[Asignación] Auditoría ${audit.code} — ${area}`,
+      emailHtml: `<p>Se te ha asignado una nueva auditoría:</p>
+        <ul>
+          <li><strong>Código:</strong> ${audit.code}</li>
+          <li><strong>Título:</strong> ${title}</li>
+          <li><strong>Área:</strong> ${area}</li>
+          <li><strong>Fecha programada:</strong> ${new Date(scheduledAt).toLocaleDateString('es-MX', { dateStyle: 'long' })}</li>
+        </ul>`,
+    }).catch((e) => console.error('[Audit] Notif error:', e));
+
     res.status(201).json(audit);
   } catch (e) {
     console.error(e);
@@ -462,7 +480,34 @@ router.patch('/:id/complete', async (req, res) => {
     const updated = await prisma.audit.update({
       where: { id: req.params.id },
       data: { status: 'COMPLETED', completedAt: new Date(), score },
+      include: { auditor: { select: { id: true, name: true } } },
     });
+
+    // Alerta a supervisores/admins si score < 60%
+    if (score !== null && score < 60) {
+      const fullAudit = await prisma.audit.findUnique({
+        where: { id: req.params.id },
+        select: { code: true, title: true, area: true },
+      });
+      if (fullAudit) {
+        notifyByRole(['SUPERVISOR', 'ADMIN'], {
+          type: 'AUDIT_LOW_SCORE',
+          referenceId: req.params.id,
+          message: `Auditoría ${fullAudit.code} completada con puntaje bajo: ${score}% (${fullAudit.area})`,
+          link: `/audits/${req.params.id}`,
+          emailSubject: `[Alerta] Auditoría ${fullAudit.code} — Puntaje ${score}%`,
+          emailHtml: `<p style="color:#c0392b">Una auditoría fue completada con puntaje <strong>por debajo del 60%</strong>:</p>
+            <ul>
+              <li><strong>Código:</strong> ${fullAudit.code}</li>
+              <li><strong>Título:</strong> ${fullAudit.title}</li>
+              <li><strong>Área:</strong> ${fullAudit.area}</li>
+              <li><strong>Puntaje:</strong> ${score}%</li>
+            </ul>
+            <p>Se recomienda revisar los hallazgos y crear acciones CAPA.</p>`,
+        }).catch((e) => console.error('[Audit] Low-score notif error:', e));
+      }
+    }
+
     res.json(updated);
   } catch (e) {
     res.status(500).json({ error: 'Error al completar auditoría' });
@@ -543,8 +588,30 @@ router.post('/:id/capa', async (req, res) => {
         assignedTo: { select: { id: true, name: true } },
         createdBy: { select: { id: true, name: true } },
         auditItem: { select: { id: true, description: true } },
+        audit: { select: { code: true, title: true, area: true } },
       },
     });
+
+    // Notificar al responsable asignado
+    const desc = capa.description.length > 80 ? capa.description.slice(0, 80) + '…' : capa.description;
+    sendNotification({
+      type: 'CAPA_ASSIGNED',
+      referenceId: capa.id,
+      userId: parsed.data.assignedToId,
+      message: `Se te asignó CAPA ${capa.code} (${capa.severity}) — vence ${new Date(parsed.data.dueDate).toLocaleDateString('es-MX')}`,
+      link: `/audits/capa`,
+      emailSubject: `[Asignación] CAPA ${capa.code} — ${capa.severity}`,
+      emailHtml: `<p>Se te ha asignado una nueva acción CAPA:</p>
+        <ul>
+          <li><strong>Código:</strong> ${capa.code}</li>
+          <li><strong>Tipo:</strong> ${capa.type}</li>
+          <li><strong>Severidad:</strong> ${capa.severity}</li>
+          <li><strong>Descripción:</strong> ${desc}</li>
+          <li><strong>Auditoría:</strong> ${capa.audit.code} — ${capa.audit.area}</li>
+          <li><strong>Fecha límite:</strong> ${new Date(parsed.data.dueDate).toLocaleDateString('es-MX', { dateStyle: 'long' })}</li>
+        </ul>`,
+    }).catch((e) => console.error('[CAPA] Notif error:', e));
+
     res.status(201).json(capa);
   } catch (e) {
     console.error(e);
@@ -578,6 +645,44 @@ router.patch('/capa/:id', async (req, res) => {
     res.json(capa);
   } catch (e) {
     res.status(500).json({ error: 'Error al actualizar acción CAPA' });
+  }
+});
+
+// ── DELETE /:id — eliminación segura de auditoría ─────────────────────────────
+router.delete('/:id', authorize('ADMIN'), async (req, res) => {
+  try {
+    const audit = await prisma.audit.findUnique({
+      where: { id: req.params.id },
+      include: {
+        capaActions: { select: { id: true, code: true, status: true } },
+      },
+    });
+    if (!audit) return res.status(404).json({ error: 'Auditoría no encontrada' });
+
+    // Bloquear si tiene CAPAs abiertas (integridad de negocio)
+    const openCapas = audit.capaActions.filter((c) => c.status !== 'CLOSED');
+    if (openCapas.length > 0) {
+      return res.status(409).json({
+        error: `No se puede eliminar: existen ${openCapas.length} acción(es) CAPA sin cerrar (${openCapas.map((c) => c.code).join(', ')}). Ciérralas primero.`,
+      });
+    }
+
+    // Limpiar en orden correcto:
+    // 1. Notificaciones huérfanas de CAPAs y de la auditoría
+    const capaIds = audit.capaActions.map((c) => c.id);
+    await prisma.notification.deleteMany({
+      where: { referenceId: { in: [...capaIds, req.params.id] } },
+    });
+    // 2. CAPAs (CLOSED, sin restricción)
+    await prisma.capaAction.deleteMany({ where: { auditId: req.params.id } });
+    // 3. Auditoría — cascade elimina secciones e ítems
+    await prisma.audit.delete({ where: { id: req.params.id } });
+
+    console.log(`[Audit] Eliminada ${audit.code} por usuario ${(req as any).user.userId}`);
+    res.json({ ok: true, deleted: audit.code });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Error al eliminar auditoría' });
   }
 });
 

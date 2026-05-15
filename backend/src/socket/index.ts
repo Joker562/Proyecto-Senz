@@ -22,6 +22,7 @@ export function setupSocket(httpServer: HttpServer): SocketServer {
   io.on('connection', (socket) => {
     const user = socket.data.user as JwtPayload;
     socket.join(`role:${user.role}`);
+    socket.join(`user:${user.userId}`);
     console.log(`[Socket] ${user.email} conectado`);
 
     socket.on('disconnect', () => {
