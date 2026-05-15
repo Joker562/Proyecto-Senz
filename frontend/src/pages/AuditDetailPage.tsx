@@ -84,6 +84,7 @@ interface CapaModalProps {
   itemDescription: string;
   onClose: () => void;
   onCreated: () => void;
+  isMock?: boolean;
 }
 
 const WHY_PLACEHOLDERS = [
@@ -102,7 +103,7 @@ const ISHIKAWA_CATS = [
   { key: 'ishikawaEnvironment', label: 'Medio Ambiente',     emoji: '🌡️' },
 ] as const;
 
-function CapaModal({ auditId, auditItemId, itemDescription, onClose, onCreated }: CapaModalProps) {
+function CapaModal({ auditId, auditItemId, itemDescription, onClose, onCreated, isMock }: CapaModalProps) {
   const { push } = useToast();
   const [loading, setLoading] = useState(false);
   const [users, setUsers] = useState<{ id: string; name: string }[]>([]);
@@ -136,15 +137,24 @@ function CapaModal({ auditId, auditItemId, itemDescription, onClose, onCreated }
     if (!form.assignedToId || !form.description) { push('Completa todos los campos obligatorios', 'error'); return; }
     setLoading(true);
     try {
-      const res = await api.post<{ id: string }>(`/audits/${auditId}/capa`, {
-        ...form,
-        auditItemId,
-        dueDate: new Date(form.dueDate).toISOString(),
-      });
-      setCreatedCapaId(res.data.id);
-      push('Acción CAPA creada', 'success');
-      onCreated();
-      if (!showEvidence) { onClose(); }
+      if (isMock) {
+        // Modo sin backend: simular creación localmente
+        const fakeId = `mock-capa-${Date.now()}`;
+        setCreatedCapaId(fakeId);
+        push('Acción CAPA registrada (modo demo)', 'success');
+        onCreated();
+        if (!showEvidence) { onClose(); }
+      } else {
+        const res = await api.post<{ id: string }>(`/audits/${auditId}/capa`, {
+          ...form,
+          auditItemId,
+          dueDate: new Date(form.dueDate).toISOString(),
+        });
+        setCreatedCapaId(res.data.id);
+        push('Acción CAPA creada — se notificó al responsable por correo', 'success');
+        onCreated();
+        if (!showEvidence) { onClose(); }
+      }
     } catch {
       push('Error al crear CAPA', 'error');
     } finally {
@@ -415,9 +425,10 @@ interface AuditItemCardProps {
   auditStatus: string;
   onUpdate: (itemId: string, result: AuditResult, notes?: string) => Promise<void>;
   onCapaCreated: () => void;
+  isMock?: boolean;
 }
 
-function AuditItemCard({ item, auditId, auditStatus, onUpdate, onCapaCreated }: AuditItemCardProps) {
+function AuditItemCard({ item, auditId, auditStatus, onUpdate, onCapaCreated, isMock }: AuditItemCardProps) {
   const [updating, setUpdating] = useState(false);
   const [notes, setNotes] = useState(item.notes ?? '');
   const [_notesOpen, setNotesOpen] = useState(!!item.notes);
@@ -506,6 +517,7 @@ function AuditItemCard({ item, auditId, auditStatus, onUpdate, onCapaCreated }: 
           itemDescription={item.description}
           onClose={() => setCapaOpen(false)}
           onCreated={onCapaCreated}
+          isMock={isMock}
         />
       )}
     </div>
@@ -520,9 +532,10 @@ interface AuditSectionBlockProps {
   defaultOpen: boolean;
   onUpdate: (itemId: string, result: AuditResult, notes?: string) => Promise<void>;
   onCapaCreated: () => void;
+  isMock?: boolean;
 }
 
-function AuditSectionBlock({ section, auditId, auditStatus, defaultOpen, onUpdate, onCapaCreated }: AuditSectionBlockProps) {
+function AuditSectionBlock({ section, auditId, auditStatus, defaultOpen, onUpdate, onCapaCreated, isMock }: AuditSectionBlockProps) {
   const [open, setOpen] = useState(defaultOpen);
 
   const answered = section.items.filter(i => i.result !== null).length;
@@ -570,6 +583,7 @@ function AuditSectionBlock({ section, auditId, auditStatus, defaultOpen, onUpdat
               auditStatus={auditStatus}
               onUpdate={onUpdate}
               onCapaCreated={onCapaCreated}
+              isMock={isMock}
             />
           ))}
         </div>
@@ -793,6 +807,7 @@ export default function AuditDetailPage() {
             defaultOpen={i === 0}
             onUpdate={handleUpdateItem}
             onCapaCreated={load}
+            isMock={isMock.current}
           />
         ))}
       </div>
