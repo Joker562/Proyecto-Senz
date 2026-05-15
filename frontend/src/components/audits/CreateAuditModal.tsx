@@ -1,9 +1,18 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Modal from '@/components/ui/Modal';
 import { api } from '@/services/api';
 import { useToast } from '@/hooks/useToast';
 
-interface Props { open: boolean; onClose: () => void; onCreated: () => void }
+interface CreatedAudit {
+  id: string; code: string; title: string; area: string;
+  type: string; auditorName: string; scheduledAt: string;
+}
+
+interface Props {
+  open: boolean;
+  onClose: () => void;
+  onCreated: (audit: CreatedAudit) => void;
+}
 
 const ACCENT  = '#e67e22';
 const C_GREEN = '#27ae60';
@@ -23,33 +32,38 @@ const labelStyle: React.CSSProperties = {
   display: 'block', marginBottom: 5, fontWeight: 500,
 };
 
-const INITIAL_FORM = {
-  title: '',
-  area: '',
-  type: '5S',
-  auditor: '',
-  auditorEmail: '',
-  scheduledDate: '',
-  notes: '',
-};
+const INITIAL_FORM = { title: '', area: '', type: 'FIVE_S', auditorId: '', scheduledAt: '', notes: '' };
 
-const TYPE_LABELS: Record<string, string> = {
-  '5S': 'Auditoría 5S',
-  PROCESS: 'Auditoría de Proceso',
-  SAFETY: 'Auditoría de Seguridad',
-};
+const TYPE_OPTIONS = [
+  { value: 'FIVE_S',   label: 'Auditoría 5S' },
+  { value: 'PROCESS',  label: 'Auditoría de Proceso' },
+  { value: 'SAFETY',   label: 'Auditoría de Seguridad' },
+];
 
 const AREAS = ['Producción', 'Ensamble', 'Corte', 'Pintura', 'Almacén', 'Calidad', 'Logística', 'Mantenimiento'];
 
+interface UserOption { id: string; name: string }
+
 export default function CreateAuditModal({ open, onClose, onCreated }: Props) {
   const { push } = useToast();
-  const [form, setForm] = useState(INITIAL_FORM);
+  const [form, setForm]       = useState(INITIAL_FORM);
   const [loading, setLoading] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [users, setUsers]     = useState<UserOption[]>([]);
+  const [usersLoading, setUsersLoading] = useState(false);
 
   const set = (k: string, v: string) => setForm((f) => ({ ...f, [k]: v }));
 
-  const isValid = form.title.trim() && form.area && form.auditor.trim() && form.scheduledDate;
+  useEffect(() => {
+    if (!open) return;
+    setUsersLoading(true);
+    api.get<UserOption[]>('/users')
+      .then((r) => setUsers(Array.isArray(r.data) ? r.data : []))
+      .catch(() => setUsers([]))
+      .finally(() => setUsersLoading(false));
+  }, [open]);
+
+  const isValid = !!(form.title.trim() && form.area && form.auditorId && form.scheduledAt);
 
   const handleClose = () => {
     setForm(INITIAL_FORM);
@@ -57,61 +71,37 @@ export default function CreateAuditModal({ open, onClose, onCreated }: Props) {
     onClose();
   };
 
-  const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
   const handleSubmit = async () => {
-    if (!isValid) return;
+    if (!isValid || loading) return;
     setLoading(true);
     try {
-      await api.post('/audits', {
-        title: form.title,
-        area: form.area,
-        type: form.type,
-        auditor: form.auditor,
-        scheduledDate: form.scheduledDate,
-        notes: form.notes || undefined,
+      const res = await api.post('/audits', {
+        title:       form.title.trim(),
+        area:        form.area,
+        type:        form.type,
+        auditorId:   form.auditorId,
+        scheduledAt: form.scheduledAt,
+        notes:       form.notes || undefined,
       });
-
-      // Enviar notificación por correo al auditor si se proporcionó email
-      if (form.auditorEmail && EMAIL_RE.test(form.auditorEmail.trim())) {
-        try {
-          const res = await api.post('/email/send', {
-            to: form.auditorEmail.trim(),
-            name: form.auditor.trim(),
-            subject: `Auditoría asignada: ${form.title}`,
-            html: `
-              <p style="font-size:14px;line-height:1.6">
-                Se te ha asignado una nueva auditoría en el sistema <strong>Senz</strong>.
-              </p>
-              <table style="font-size:13px;border-collapse:collapse;margin:16px 0">
-                <tr><td style="color:#888;padding:4px 12px 4px 0">Título:</td><td style="font-weight:600">${form.title}</td></tr>
-                <tr><td style="color:#888;padding:4px 12px 4px 0">Área:</td><td>${form.area}</td></tr>
-                <tr><td style="color:#888;padding:4px 12px 4px 0">Tipo:</td><td>${TYPE_LABELS[form.type] ?? form.type}</td></tr>
-                <tr><td style="color:#888;padding:4px 12px 4px 0">Fecha programada:</td><td>${form.scheduledDate}</td></tr>
-              </table>
-              ${form.notes ? `<p style="font-size:13px;color:#555"><strong>Notas:</strong> ${form.notes}</p>` : ''}
-              <p style="font-size:13px;color:#555">Accede al sistema para revisar los detalles y confirmar tu asistencia.</p>
-            `,
-          });
-          const previewUrl = res.data?.previewUrl;
-          if (previewUrl) {
-            push(`Notificación enviada (Ethereal): ${previewUrl}`, 'success');
-          } else {
-            push(`Notificación enviada a ${form.auditorEmail}`, 'success');
-          }
-        } catch {
-          push('Auditoría creada. No se pudo enviar la notificación por correo.', 'error');
-        }
-      }
-
+      const audit = res.data;
       setSubmitted(true);
-      push('Auditoría creada y programada', 'success');
+      push('Auditoría programada — notificación enviada al auditor', 'success');
       setTimeout(() => {
-        onCreated();
+        onCreated({
+          id:           audit.id,
+          code:         audit.code,
+          title:        audit.title,
+          area:         audit.area,
+          type:         audit.type,
+          auditorName:  audit.auditor?.name ?? '',
+          scheduledAt:  audit.scheduledAt,
+        });
         handleClose();
       }, 1500);
-    } catch {
-      push('Error al crear la auditoría', 'error');
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error
+        ?? 'Error al crear la auditoría';
+      push(msg, 'error');
     } finally {
       setLoading(false);
     }
@@ -134,7 +124,9 @@ export default function CreateAuditModal({ open, onClose, onCreated }: Props) {
           <div style={{ fontSize: 16, fontWeight: 700, color: TEXT, marginBottom: 6, fontFamily: 'IBM Plex Sans, sans-serif' }}>
             Auditoría programada exitosamente
           </div>
-          <div style={{ fontSize: 13, color: MUTED, fontFamily: 'IBM Plex Sans, sans-serif' }}>Cerrando…</div>
+          <div style={{ fontSize: 13, color: MUTED, fontFamily: 'IBM Plex Sans, sans-serif' }}>
+            Notificación enviada al auditor asignado
+          </div>
         </div>
       ) : (
         <>
@@ -161,9 +153,7 @@ export default function CreateAuditModal({ open, onClose, onCreated }: Props) {
               <div>
                 <label style={labelStyle}>Tipo *</label>
                 <select value={form.type} onChange={(e) => set('type', e.target.value)} style={inputStyle}>
-                  {Object.entries(TYPE_LABELS).map(([k, v]) => (
-                    <option key={k} value={k}>{v}</option>
-                  ))}
+                  {TYPE_OPTIONS.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
                 </select>
               </div>
             </div>
@@ -171,33 +161,25 @@ export default function CreateAuditModal({ open, onClose, onCreated }: Props) {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
               <div>
                 <label style={labelStyle}>Auditor responsable *</label>
-                <input
-                  value={form.auditor}
-                  onChange={(e) => set('auditor', e.target.value)}
-                  placeholder="Nombre del auditor"
+                <select
+                  value={form.auditorId}
+                  onChange={(e) => set('auditorId', e.target.value)}
                   style={inputStyle}
-                />
+                  disabled={usersLoading}
+                >
+                  <option value="">{usersLoading ? 'Cargando…' : 'Seleccionar auditor…'}</option>
+                  {users.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+                </select>
               </div>
               <div>
                 <label style={labelStyle}>Fecha programada *</label>
                 <input
                   type="date"
-                  value={form.scheduledDate}
-                  onChange={(e) => set('scheduledDate', e.target.value)}
+                  value={form.scheduledAt}
+                  onChange={(e) => set('scheduledAt', e.target.value)}
                   style={inputStyle}
                 />
               </div>
-            </div>
-
-            <div>
-              <label style={labelStyle}>Correo del auditor <span style={{ color: '#aaa', fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>(para notificación)</span></label>
-              <input
-                type="email"
-                value={form.auditorEmail}
-                onChange={(e) => set('auditorEmail', e.target.value)}
-                placeholder="auditor@empresa.com"
-                style={inputStyle}
-              />
             </div>
 
             <div>
