@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import Modal from '@/components/ui/Modal';
 import { useToast } from '@/hooks/useToast';
-import { userStore } from '@/data/userStore';
 import { api } from '@/services/api';
 import type { MockUser } from '@/data/mockData';
 
@@ -47,8 +46,6 @@ const ROLE_OPTIONS = [
   { value: 'EXECUTIVE',  label: 'Directivo' },
 ];
 
-let _nextUserId = 100;
-
 export default function CreateUserModal({ open, onClose, onCreated }: Props) {
   const { push } = useToast();
   const [form, setForm]       = useState(INITIAL_FORM);
@@ -60,14 +57,14 @@ export default function CreateUserModal({ open, onClose, onCreated }: Props) {
   // ── Validaciones ───────────────────────────────────────────────
   const emailInvalid   = form.email.length > 0 && !EMAIL_RE.test(form.email.trim());
   const emailDuplicate = EMAIL_RE.test(form.email.trim()) && userStore.emailExists(form.email);
-  const pwTooShort     = form.password.length > 0 && form.password.length < 6;
+  const pwTooShort     = form.password.length > 0 && form.password.length < 8;
   const pwMismatch     = form.confirmPassword.length > 0 && form.password !== form.confirmPassword;
 
   const isValid =
     form.name.trim().length > 0 &&
     EMAIL_RE.test(form.email.trim()) &&
     !emailDuplicate &&
-    form.password.length >= 6 &&
+    form.password.length >= 8 &&
     form.password === form.confirmPassword;
 
   const handleClose = () => {
@@ -79,51 +76,59 @@ export default function CreateUserModal({ open, onClose, onCreated }: Props) {
   const handleSubmit = async () => {
     if (!isValid || loading) return;
     setLoading(true);
-    await new Promise((r) => setTimeout(r, 500));
-
-    const newUser: MockUser = {
-      id: _nextUserId++,
-      name: form.name.trim(),
-      email: form.email.trim().toLowerCase(),
-      role: form.role as MockUser['role'],
-      status: form.status as MockUser['status'],
-      lastLogin: '—',
-    };
-
-    setSubmitted(true);
-    setLoading(false);
-
-    // Envío real de correo de bienvenida
     try {
-      const res = await api.post('/email/send', {
-        to: newUser.email,
-        name: newUser.name,
-        subject: 'Bienvenido a Senz — Tu cuenta ha sido creada',
-        html: `
-          <p style="font-size:14px;line-height:1.6">
-            Tu cuenta en el Sistema de Gestión Industrial <strong>Senz</strong> ha sido creada exitosamente.
-          </p>
-          <table style="font-size:13px;border-collapse:collapse;margin:16px 0">
-            <tr><td style="color:#888;padding:4px 12px 4px 0">Usuario:</td><td style="font-weight:600">${newUser.email}</td></tr>
-            <tr><td style="color:#888;padding:4px 12px 4px 0">Rol:</td><td>${newUser.role}</td></tr>
-          </table>
-          <p style="font-size:13px;color:#555">Comunícate con el administrador para obtener tu contraseña temporal.</p>
-        `,
+      const res = await api.post('/users', {
+        name: form.name.trim(),
+        email: form.email.trim().toLowerCase(),
+        password: form.password,
+        role: form.role,
       });
-      const previewUrl = res.data?.previewUrl;
-      if (previewUrl) {
-        push(`Correo enviado (Ethereal): ${previewUrl}`, 'success');
-      } else {
-        push(`Correo de bienvenida enviado a ${newUser.email}`, 'success');
-      }
-    } catch {
-      push(`Usuario creado. No se pudo enviar el correo a ${newUser.email}`, 'error');
-    }
+      const created = res.data;
+      const newUser: MockUser = {
+        id: created.id,
+        name: created.name,
+        email: created.email,
+        role: created.role as MockUser['role'],
+        status: 'ACTIVE',
+        lastLogin: '—',
+      };
+      setSubmitted(true);
 
-    setTimeout(() => {
-      onCreated(newUser);
-      handleClose();
-    }, 1400);
+      // Envío de correo de bienvenida
+      try {
+        const mailRes = await api.post('/email/send', {
+          to: newUser.email,
+          name: newUser.name,
+          subject: 'Bienvenido a Senz — Tu cuenta ha sido creada',
+          html: `
+            <p style="font-size:14px;line-height:1.6">
+              Tu cuenta en el Sistema de Gestión Industrial <strong>Senz</strong> ha sido creada exitosamente.
+            </p>
+            <table style="font-size:13px;border-collapse:collapse;margin:16px 0">
+              <tr><td style="color:#888;padding:4px 12px 4px 0">Usuario:</td><td style="font-weight:600">${newUser.email}</td></tr>
+              <tr><td style="color:#888;padding:4px 12px 4px 0">Rol:</td><td>${newUser.role}</td></tr>
+            </table>
+            <p style="font-size:13px;color:#555">Tu contraseña temporal fue proporcionada por el administrador.</p>
+          `,
+        });
+        const previewUrl = mailRes.data?.previewUrl;
+        if (previewUrl) push(`Correo enviado (Ethereal): ${previewUrl}`, 'success');
+        else push(`Correo de bienvenida enviado a ${newUser.email}`, 'success');
+      } catch {
+        // email failure is non-critical
+      }
+
+      setTimeout(() => {
+        onCreated(newUser);
+        handleClose();
+      }, 1400);
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error
+        ?? 'Error al crear el usuario';
+      push(msg, 'error');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -184,10 +189,10 @@ export default function CreateUserModal({ open, onClose, onCreated }: Props) {
                   type="password"
                   value={form.password}
                   onChange={(e) => set('password', e.target.value)}
-                  placeholder="Mín. 6 caracteres"
+                  placeholder="Mín. 8 caracteres"
                   style={{ ...inputStyle, borderColor: pwTooShort ? C_RED : BORDER }}
                 />
-                {pwTooShort && <div style={errorStyle}>Mínimo 6 caracteres</div>}
+                {pwTooShort && <div style={errorStyle}>Mínimo 8 caracteres</div>}
               </div>
               <div>
                 <label style={labelStyle}>Confirmar contraseña *</label>
