@@ -19,8 +19,15 @@ export default function LoginPage() {
     try {
       await login(email, password);
       navigate('/dashboard');
-    } catch {
-      setError('Credenciales incorrectas. Verifica tu email y contraseña.');
+    } catch (err: unknown) {
+      const status = (err as { response?: { status?: number } })?.response?.status;
+      if (!status) {
+        setError('No se puede conectar al servidor. Verifica que el backend esté ejecutándose en el puerto 4000.');
+      } else if (status === 401) {
+        setError('Credenciales incorrectas. Verifica tu correo y contraseña.');
+      } else {
+        setError(`Error del servidor (${status}). Intenta de nuevo.`);
+      }
     } finally {
       setLoading(false);
     }
