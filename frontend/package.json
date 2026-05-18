@@ -2,7 +2,7 @@
   "name": "planta-mantenimiento-frontend",
   "version": "1.0.0",
   "scripts": {
-    "dev": "vite",
+    "dev": "vite --force",
     "build": "tsc && vite build",
     "preview": "vite preview"
   },
