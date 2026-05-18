@@ -12,6 +12,7 @@ interface Props {
   open: boolean;
   onClose: () => void;
   onCreated: (audit: CreatedAudit) => void;
+  defaultDate?: string;
 }
 
 const ACCENT  = '#e67e22';
@@ -44,7 +45,7 @@ const AREAS = ['Producción', 'Ensamble', 'Corte', 'Pintura', 'Almacén', 'Calid
 
 interface UserOption { id: string; name: string }
 
-export default function CreateAuditModal({ open, onClose, onCreated }: Props) {
+export default function CreateAuditModal({ open, onClose, onCreated, defaultDate }: Props) {
   const { push } = useToast();
   const [form, setForm]       = useState(INITIAL_FORM);
   const [loading, setLoading] = useState(false);
@@ -56,12 +57,13 @@ export default function CreateAuditModal({ open, onClose, onCreated }: Props) {
 
   useEffect(() => {
     if (!open) return;
+    if (defaultDate) setForm((f) => ({ ...f, scheduledAt: defaultDate }));
     setUsersLoading(true);
     api.get<UserOption[]>('/users')
       .then((r) => setUsers(Array.isArray(r.data) ? r.data : []))
       .catch(() => setUsers([]))
       .finally(() => setUsersLoading(false));
-  }, [open]);
+  }, [open, defaultDate]);
 
   const isValid = !!(form.title.trim() && form.area && form.auditorId && form.scheduledAt);
 
@@ -99,8 +101,8 @@ export default function CreateAuditModal({ open, onClose, onCreated }: Props) {
         handleClose();
       }, 1500);
     } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error
-        ?? 'Error al crear la auditoría';
+      const raw = (err as { response?: { data?: { error?: unknown } } })?.response?.data?.error;
+      const msg = typeof raw === 'string' ? raw : 'Error al crear la auditoría';
       push(msg, 'error');
     } finally {
       setLoading(false);

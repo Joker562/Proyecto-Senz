@@ -8,6 +8,8 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
+      // Deshabilitar Service Worker en desarrollo para evitar cache desactualizado
+      devOptions: { enabled: false },
       includeAssets: ['favicon.svg', 'icons/*.png'],
       manifest: {
         name: 'Mantenimiento de Planta',
@@ -42,6 +44,11 @@ export default defineConfig({
   server: {
     port: 5173,
     host: '0.0.0.0',
+    // Forzar sin caché en desarrollo para siempre servir código actualizado
+    headers: {
+      'Cache-Control': 'no-store, no-cache, must-revalidate',
+      'Pragma': 'no-cache',
+    },
     proxy: {
       '/api': { target: 'http://localhost:4000', changeOrigin: true },
       '/uploads': { target: 'http://localhost:4000', changeOrigin: true },

@@ -1,8 +1,11 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import path from 'path';
+import fs from 'fs';
 import { prisma } from '../services/prisma';
 import { authenticate, authorize } from '../middleware/auth';
 import { sendNotification, notifyByRole } from '../services/notifications';
+import { upload } from '../services/upload';
 
 const router = Router();
 router.use(authenticate);
@@ -93,7 +96,7 @@ const templateSectionSchema = z.object({
 
 const saveTemplateSchema = z.object({
   name: z.string().min(2),
-  type: z.enum(['FIVE_S', 'PROCESS']),
+  type: z.enum(['FIVE_S', 'PROCESS', 'SAFETY']),
   isDefault: z.boolean().default(false),
   sections: z.array(templateSectionSchema).min(1, 'La plantilla necesita al menos 1 sección'),
 });
@@ -292,11 +295,17 @@ router.get('/capa', async (req, res) => {
 // ── GET / ──────────────────────────────────────────────────────────────────────
 router.get('/', async (req, res) => {
   try {
-    const { type, area, status } = req.query;
+    const { type, area, status, startDate, endDate } = req.query;
     const where: Record<string, unknown> = {};
     if (type) where.type = type;
     if (area) where.area = area;
     if (status) where.status = status;
+    if (startDate || endDate) {
+      const range: Record<string, Date> = {};
+      if (startDate) range.gte = new Date(startDate as string);
+      if (endDate)   range.lte = new Date(endDate as string);
+      where.scheduledAt = range;
+    }
 
     const audits = await prisma.audit.findMany({
       where,
@@ -358,7 +367,7 @@ router.get('/:id', async (req, res) => {
 // ── POST / ─────────────────────────────────────────────────────────────────────
 const createSchema = z.object({
   title: z.string().min(3),
-  type: z.enum(['FIVE_S', 'PROCESS']),
+  type: z.enum(['FIVE_S', 'PROCESS', 'SAFETY']),
   area: z.string().min(1),
   scheduledAt: z.string(),
   auditorId: z.string(),
@@ -372,6 +381,25 @@ router.post('/', authorize('ADMIN', 'SUPERVISOR'), async (req, res) => {
   const { title, type, area, scheduledAt, auditorId, templateId, notes } = parsed.data;
 
   try {
+    // Validar que el auditor no tenga otra auditoría activa el mismo día
+    const schedDate = new Date(scheduledAt);
+    const dayStart  = new Date(schedDate.getFullYear(), schedDate.getMonth(), schedDate.getDate());
+    const dayEnd    = new Date(schedDate.getFullYear(), schedDate.getMonth(), schedDate.getDate() + 1);
+
+    const conflict = await prisma.audit.findFirst({
+      where: {
+        auditorId,
+        status: { in: ['DRAFT', 'IN_PROGRESS'] },
+        scheduledAt: { gte: dayStart, lt: dayEnd },
+      },
+      select: { code: true, title: true, area: true },
+    });
+    if (conflict) {
+      return res.status(409).json({
+        error: `Conflicto de horario: ${conflict.code} — "${conflict.title}" (${conflict.area}) ya está asignada al mismo auditor para esa fecha.`,
+      });
+    }
+
     const template = await prisma.auditTemplate.findFirst({
       where: templateId ? { id: templateId } : { type, isDefault: true },
       include: {
@@ -563,6 +591,18 @@ const createCapaSchema = z.object({
   dueDate: z.string(),
   assignedToId: z.string(),
   auditItemId: z.string().optional(),
+  // 5 Por Qués
+  why1: z.string().optional(),
+  why2: z.string().optional(),
+  why3: z.string().optional(),
+  why4: z.string().optional(),
+  why5: z.string().optional(),
+  // Ishikawa
+  ishikawaMachine:     z.string().optional(),
+  ishikawaMethod:      z.string().optional(),
+  ishikawaMaterial:    z.string().optional(),
+  ishikawaManpower:    z.string().optional(),
+  ishikawaEnvironment: z.string().optional(),
 });
 
 router.post('/:id/capa', async (req, res) => {
@@ -583,6 +623,16 @@ router.post('/:id/capa', async (req, res) => {
         auditItemId: parsed.data.auditItemId ?? null,
         assignedToId: parsed.data.assignedToId,
         createdById: (req as any).user.userId,
+        why1: parsed.data.why1,
+        why2: parsed.data.why2,
+        why3: parsed.data.why3,
+        why4: parsed.data.why4,
+        why5: parsed.data.why5,
+        ishikawaMachine:     parsed.data.ishikawaMachine,
+        ishikawaMethod:      parsed.data.ishikawaMethod,
+        ishikawaMaterial:    parsed.data.ishikawaMaterial,
+        ishikawaManpower:    parsed.data.ishikawaManpower,
+        ishikawaEnvironment: parsed.data.ishikawaEnvironment,
       },
       include: {
         assignedTo: { select: { id: true, name: true } },
@@ -621,30 +671,98 @@ router.post('/:id/capa', async (req, res) => {
 
 // ── PATCH /capa/:id ────────────────────────────────────────────────────────────
 const updateCapaSchema = z.object({
-  status: z.enum(['OPEN', 'IN_PROGRESS', 'PENDING_VERIFICATION', 'CLOSED']).optional(),
+  status:       z.enum(['OPEN', 'IN_PROGRESS', 'PENDING_VERIFICATION', 'CLOSED']).optional(),
   closingNotes: z.string().optional(),
+  rootCause:    z.string().optional(),
+  why1:         z.string().optional(),
+  why2:         z.string().optional(),
+  why3:         z.string().optional(),
+  why4:         z.string().optional(),
+  why5:         z.string().optional(),
+  ishikawaMachine:     z.string().optional(),
+  ishikawaMethod:      z.string().optional(),
+  ishikawaMaterial:    z.string().optional(),
+  ishikawaManpower:    z.string().optional(),
+  ishikawaEnvironment: z.string().optional(),
+  evidencePhotos: z.array(z.string()).optional(),
 });
+
+const TRACKED_FIELDS = ['status', 'rootCause', 'why1', 'why2', 'why3', 'why4', 'why5',
+  'ishikawaMachine', 'ishikawaMethod', 'ishikawaMaterial', 'ishikawaManpower', 'ishikawaEnvironment'];
 
 router.patch('/capa/:id', async (req, res) => {
   const parsed = updateCapaSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
   try {
-    const data: Record<string, unknown> = { ...parsed.data };
-    if (parsed.data.status === 'CLOSED') data.closedAt = new Date();
+    const existing = await prisma.capaAction.findUnique({ where: { id: req.params.id } });
+    if (!existing) return res.status(404).json({ error: 'CAPA no encontrada' });
+
+    const updateData: Record<string, unknown> = { ...parsed.data };
+    if (parsed.data.status === 'CLOSED') updateData.closedAt = new Date();
+    if (parsed.data.evidencePhotos !== undefined) {
+      updateData.evidencePhotos = JSON.stringify(parsed.data.evidencePhotos);
+    }
 
     const capa = await prisma.capaAction.update({
       where: { id: req.params.id },
-      data,
+      data: updateData,
       include: {
         assignedTo: { select: { id: true, name: true } },
-        createdBy: { select: { id: true, name: true } },
-        audit: { select: { id: true, code: true, title: true, area: true } },
+        createdBy:  { select: { id: true, name: true } },
+        audit:      { select: { id: true, code: true, title: true, area: true } },
+        changeLogs: {
+          include: { user: { select: { id: true, name: true } } },
+          orderBy: { changedAt: 'desc' },
+          take: 20,
+        },
       },
     });
+
+    // Registrar cambios auditables en segundo plano
+    const userId = (req as any).user.userId;
+    const logs = TRACKED_FIELDS
+      .filter(f => parsed.data[f as keyof typeof parsed.data] !== undefined)
+      .map(f => ({
+        capaId:   req.params.id,
+        userId,
+        field:    f,
+        oldValue: String((existing as any)[f] ?? ''),
+        newValue: String(parsed.data[f as keyof typeof parsed.data] ?? ''),
+      }))
+      .filter(l => l.oldValue !== l.newValue);
+
+    if (logs.length > 0) {
+      prisma.capaChangeLog.createMany({ data: logs }).catch(console.error);
+    }
+
     res.json(capa);
   } catch (e) {
+    console.error(e);
     res.status(500).json({ error: 'Error al actualizar acción CAPA' });
+  }
+});
+
+// ── GET /capa/:id ─────────────────────────────────────────────────────────────
+router.get('/capa/:id', async (req, res) => {
+  try {
+    const capa = await prisma.capaAction.findUnique({
+      where: { id: req.params.id },
+      include: {
+        assignedTo: { select: { id: true, name: true } },
+        createdBy:  { select: { id: true, name: true } },
+        audit:      { select: { id: true, code: true, title: true, area: true } },
+        auditItem:  { select: { id: true, description: true } },
+        changeLogs: {
+          include: { user: { select: { id: true, name: true } } },
+          orderBy: { changedAt: 'desc' },
+        },
+      },
+    });
+    if (!capa) return res.status(404).json({ error: 'CAPA no encontrada' });
+    res.json({ ...capa, evidencePhotos: capa.evidencePhotos ? JSON.parse(capa.evidencePhotos) : [] });
+  } catch (e) {
+    res.status(500).json({ error: 'Error al obtener CAPA' });
   }
 });
 
@@ -815,6 +933,297 @@ router.get('/reports/monthly', async (req, res) => {
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: 'Error al obtener reporte mensual' });
+  }
+});
+
+// ── POST /capa/:id/evidence — subir foto de evidencia ─────────────────────────
+router.post('/capa/:id/evidence', upload.single('photo'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'No se recibió archivo' });
+  try {
+    const capa = await prisma.capaAction.findUnique({ where: { id: req.params.id }, select: { evidencePhotos: true } });
+    if (!capa) return res.status(404).json({ error: 'CAPA no encontrada' });
+    const current: string[] = capa.evidencePhotos ? JSON.parse(capa.evidencePhotos) : [];
+    const url = `/uploads/${req.file.filename}`;
+    const updated = [...current, url];
+    await prisma.capaAction.update({ where: { id: req.params.id }, data: { evidencePhotos: JSON.stringify(updated) } });
+    res.json({ url, photos: updated });
+  } catch (e) {
+    res.status(500).json({ error: 'Error al subir evidencia' });
+  }
+});
+
+// ── DELETE /capa/:id/evidence — eliminar foto de evidencia ────────────────────
+router.delete('/capa/:id/evidence', async (req, res) => {
+  const { url } = req.body as { url: string };
+  if (!url) return res.status(400).json({ error: 'Falta url' });
+  try {
+    const capa = await prisma.capaAction.findUnique({ where: { id: req.params.id }, select: { evidencePhotos: true } });
+    if (!capa) return res.status(404).json({ error: 'CAPA no encontrada' });
+    const current: string[] = capa.evidencePhotos ? JSON.parse(capa.evidencePhotos) : [];
+    const updated = current.filter(u => u !== url);
+    await prisma.capaAction.update({ where: { id: req.params.id }, data: { evidencePhotos: JSON.stringify(updated) } });
+    // Borrar archivo físico
+    const filename = path.basename(url);
+    const filepath = path.join(process.cwd(), 'uploads', filename);
+    if (fs.existsSync(filepath)) fs.unlink(filepath, () => {});
+    res.json({ photos: updated });
+  } catch (e) {
+    res.status(500).json({ error: 'Error al eliminar evidencia' });
+  }
+});
+
+// ── Backend endpoints para historial y trazabilidad ───────────────────────────
+
+// GET /reports/history?area=X — puntajes históricos por auditoría en un área
+router.get('/reports/history', async (req, res) => {
+  try {
+    const { area } = req.query as { area?: string };
+    const where: Record<string, unknown> = { status: { in: ['COMPLETED', 'CLOSED'] }, score: { not: null } };
+    if (area) where.area = area;
+
+    const audits = await prisma.audit.findMany({
+      where,
+      select: { id: true, code: true, area: true, score: true, completedAt: true, type: true, auditor: { select: { name: true } } },
+      orderBy: { completedAt: 'asc' },
+    });
+
+    // Áreas disponibles para el filtro
+    const areas = [...new Set(audits.map(a => a.area))].sort();
+
+    res.json({ audits, areas });
+  } catch (e) {
+    res.status(500).json({ error: 'Error al obtener historial' });
+  }
+});
+
+// GET /reports/recurrence?area=X — ítems con alta tasa de fallo
+router.get('/reports/recurrence', async (req, res) => {
+  try {
+    const { area, threshold = '0.5' } = req.query as { area?: string; threshold?: string };
+    const failRate = parseFloat(threshold);
+
+    const where: Record<string, unknown> = {};
+    if (area) where.audit = { area };
+
+    const items = await prisma.auditItem.findMany({
+      where,
+      select: { description: true, result: true, section: { select: { audit: { select: { area: true } } } } },
+    });
+
+    // Agrupar por (descripción + área) y calcular tasa de fallo
+    const map: Record<string, { total: number; fails: number; area: string }> = {};
+    for (const item of items) {
+      if (!item.result) continue;
+      const key = `${item.section.audit.area}||${item.description}`;
+      if (!map[key]) map[key] = { total: 0, fails: 0, area: item.section.audit.area };
+      map[key].total++;
+      if (item.result === 'FAIL') map[key].fails++;
+    }
+
+    const recurrent = Object.entries(map)
+      .map(([key, v]) => {
+        const [itemArea, description] = key.split('||');
+        return { description, area: itemArea, total: v.total, fails: v.fails, failRate: Math.round(v.fails / v.total * 100) };
+      })
+      .filter(r => r.total >= 2 && r.fails / r.total >= failRate)
+      .sort((a, b) => b.failRate - a.failRate);
+
+    res.json({ recurrent });
+  } catch (e) {
+    res.status(500).json({ error: 'Error al obtener reincidencia' });
+  }
+});
+
+// GET /reports/program-compliance — tasa de cumplimiento del programa
+router.get('/reports/program-compliance', async (req, res) => {
+  try {
+    const months = Math.min(parseInt(req.query.months as string) || 6, 24);
+    const since = new Date();
+    since.setMonth(since.getMonth() - months + 1);
+    since.setDate(1);
+    since.setHours(0, 0, 0, 0);
+
+    const audits = await prisma.audit.findMany({
+      where: { scheduledAt: { gte: since } },
+      select: { status: true, scheduledAt: true, completedAt: true, area: true },
+    });
+
+    // Agrupar por mes
+    const monthMap: Record<string, { scheduled: number; completed: number }> = {};
+    for (const a of audits) {
+      const d = new Date(a.scheduledAt);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      if (!monthMap[key]) monthMap[key] = { scheduled: 0, completed: 0 };
+      monthMap[key].scheduled++;
+      if (['COMPLETED', 'CLOSED'].includes(a.status)) monthMap[key].completed++;
+    }
+
+    const rows = Object.entries(monthMap)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([month, v]) => ({
+        month,
+        scheduled: v.scheduled,
+        completed: v.completed,
+        rate: v.scheduled > 0 ? Math.round(v.completed / v.scheduled * 100) : null,
+      }));
+
+    res.json({ rows });
+  } catch (e) {
+    res.status(500).json({ error: 'Error al obtener cumplimiento del programa' });
+  }
+});
+
+// ── PATCH /:id — editar datos básicos de auditoría en DRAFT ──────────────────
+const editAuditSchema = z.object({
+  title:      z.string().min(3).optional(),
+  area:       z.string().min(1).optional(),
+  scheduledAt: z.string().optional(),
+  auditorId:  z.string().optional(),
+  notes:      z.string().optional(),
+});
+
+router.patch('/:id', async (req, res) => {
+  const parsed = editAuditSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+  try {
+    const audit = await prisma.audit.findUnique({ where: { id: req.params.id }, select: { status: true } });
+    if (!audit) return res.status(404).json({ error: 'Auditoría no encontrada' });
+    if (audit.status !== 'DRAFT') return res.status(409).json({ error: 'Solo se pueden editar auditorías en estado BORRADOR' });
+
+    const data: Record<string, unknown> = {};
+    if (parsed.data.title)       data.title = parsed.data.title;
+    if (parsed.data.area)        data.area = parsed.data.area;
+    if (parsed.data.scheduledAt) data.scheduledAt = new Date(parsed.data.scheduledAt);
+    if (parsed.data.auditorId)   data.auditorId = parsed.data.auditorId;
+    if (parsed.data.notes !== undefined) data.notes = parsed.data.notes;
+
+    const updated = await prisma.audit.update({
+      where: { id: req.params.id },
+      data,
+      include: { auditor: { select: { id: true, name: true } } },
+    });
+    res.json(updated);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Error al actualizar auditoría' });
+  }
+});
+
+// ── PATCH /:id/reschedule — reprogramar auditoría con registro ────────────────
+router.patch('/:id/reschedule', async (req, res) => {
+  const { scheduledAt, reason } = req.body as { scheduledAt: string; reason?: string };
+  if (!scheduledAt) return res.status(400).json({ error: 'Falta nueva fecha' });
+
+  try {
+    const audit = await prisma.audit.findUnique({
+      where: { id: req.params.id },
+      select: { status: true, code: true, title: true, area: true, auditorId: true, scheduledAt: true },
+    });
+    if (!audit) return res.status(404).json({ error: 'Auditoría no encontrada' });
+    if (!['DRAFT', 'IN_PROGRESS'].includes(audit.status)) {
+      return res.status(409).json({ error: 'Solo se pueden reprogramar auditorías en borrador o en curso' });
+    }
+
+    const updated = await prisma.audit.update({
+      where: { id: req.params.id },
+      data: { scheduledAt: new Date(scheduledAt), notes: reason ? `[Reprogramada] ${reason}` : undefined },
+      include: { auditor: { select: { id: true, name: true } } },
+    });
+
+    const oldDate = audit.scheduledAt?.toLocaleDateString('es-MX') ?? '—';
+    const newDate = new Date(scheduledAt).toLocaleDateString('es-MX');
+    sendNotification({
+      type: 'AUDIT_REMINDER',
+      referenceId: req.params.id,
+      userId: audit.auditorId,
+      message: `Auditoría ${audit.code} reprogramada: ${oldDate} → ${newDate}${reason ? ` (${reason})` : ''}`,
+      link: `/audits/${req.params.id}`,
+      emailSubject: `[Reprogramación] Auditoría ${audit.code}`,
+      emailHtml: `<p>La auditoría <strong>${audit.title}</strong> (${audit.area}) ha sido reprogramada:</p>
+        <ul><li><strong>Fecha anterior:</strong> ${oldDate}</li><li><strong>Nueva fecha:</strong> ${newDate}</li>${reason ? `<li><strong>Motivo:</strong> ${reason}</li>` : ''}</ul>`,
+    }).catch(console.error);
+
+    res.json(updated);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Error al reprogramar auditoría' });
+  }
+});
+
+// ── POST /:id/items — agregar ítem a sección en DRAFT ────────────────────────
+router.post('/:id/items', async (req, res) => {
+  const { sectionId, description, weight = 1 } = req.body as { sectionId: string; description: string; weight?: number };
+  if (!sectionId || !description) return res.status(400).json({ error: 'Faltan campos requeridos' });
+
+  try {
+    const audit = await prisma.audit.findUnique({ where: { id: req.params.id }, select: { status: true } });
+    if (!audit) return res.status(404).json({ error: 'Auditoría no encontrada' });
+    if (audit.status !== 'DRAFT') return res.status(409).json({ error: 'Solo se pueden modificar auditorías en BORRADOR' });
+
+    const lastItem = await prisma.auditItem.findFirst({ where: { sectionId }, orderBy: { order: 'desc' }, select: { order: true } });
+    const item = await prisma.auditItem.create({
+      data: { sectionId, description, weight, order: (lastItem?.order ?? 0) + 1 },
+    });
+    res.status(201).json(item);
+  } catch (e) {
+    res.status(500).json({ error: 'Error al agregar ítem' });
+  }
+});
+
+// ── DELETE /:id/items/:itemId — quitar ítem en DRAFT ─────────────────────────
+router.delete('/:id/items/:itemId', async (req, res) => {
+  try {
+    const audit = await prisma.audit.findUnique({ where: { id: req.params.id }, select: { status: true } });
+    if (!audit) return res.status(404).json({ error: 'Auditoría no encontrada' });
+    if (audit.status !== 'DRAFT') return res.status(409).json({ error: 'Solo se pueden modificar auditorías en BORRADOR' });
+
+    await prisma.auditItem.delete({ where: { id: req.params.itemId } });
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: 'Error al eliminar ítem' });
+  }
+});
+
+// ── Dashboard ampliado con métricas de eficacia ────────────────────────────────
+router.get('/reports/efficacy', async (_req, res) => {
+  try {
+    const now = new Date();
+    const thirtyDaysAgo = new Date(now);
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+    const capas = await prisma.capaAction.findMany({
+      select: { status: true, dueDate: true, closedAt: true, severity: true },
+    });
+
+    const total    = capas.length;
+    const closed   = capas.filter(c => c.status === 'CLOSED');
+    const onTime   = closed.filter(c => c.closedAt && c.closedAt <= c.dueDate).length;
+    const overdue  = capas.filter(c => c.status !== 'CLOSED' && c.dueDate < now).length;
+    const effective = closed.filter(c => c.closedAt && new Date(c.closedAt) < thirtyDaysAgo).length;
+
+    // Programadas vs realizadas (últimos 3 meses)
+    const threeMonthsAgo = new Date(now);
+    threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
+    const [scheduled, completed] = await Promise.all([
+      prisma.audit.count({ where: { scheduledAt: { gte: threeMonthsAgo } } }),
+      prisma.audit.count({ where: { scheduledAt: { gte: threeMonthsAgo }, status: { in: ['COMPLETED', 'CLOSED'] } } }),
+    ]);
+
+    res.json({
+      capaTotal: total,
+      capaClosed: closed.length,
+      capaOnTime: onTime,
+      capaOverdue: overdue,
+      capaEffective: effective,
+      onTimeRate:   closed.length > 0 ? Math.round(onTime   / closed.length * 100) : null,
+      effectiveRate: closed.length > 0 ? Math.round(effective / closed.length * 100) : null,
+      programScheduled: scheduled,
+      programCompleted: completed,
+      programRate: scheduled > 0 ? Math.round(completed / scheduled * 100) : null,
+    });
+  } catch (e) {
+    res.status(500).json({ error: 'Error al obtener métricas de eficacia' });
   }
 });
 

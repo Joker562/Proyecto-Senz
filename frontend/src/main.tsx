@@ -1,8 +1,9 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { Car, BarChart3, ClipboardCheck, Truck, AlertTriangle } from 'lucide-react';
+import { Car, BarChart3, Truck, AlertTriangle } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
+import { usePermissions, type PermKey } from '@/hooks/usePermissions';
 import { ThemeProvider } from '@/theme/ThemeContext';
 import AppLayout from '@/components/layout/AppLayout';
 import LoginPage from '@/pages/LoginPage';
@@ -22,16 +23,34 @@ import AuditFindingsPage from '@/pages/AuditFindingsPage';
 import AuditTemplatesPage from '@/pages/AuditTemplatesPage';
 import ReporteCapasPage from '@/pages/ReporteCapasPage';
 import ReporteMensualPage from '@/pages/ReporteMensualPage';
+import AuditsCalendarPage from '@/pages/AuditsCalendarPage';
 import OEEDashboardPage from '@/pages/OEEDashboardPage';
 import FleetDashboardPage from '@/pages/FleetDashboardPage';
 import '@/index.css';
+
+// ─── Guardia de autenticación ─────────────────────────────────────────────────
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuth();
   return isAuthenticated() ? <>{children}</> : <Navigate to="/login" replace />;
 }
 
-// ─── Placeholder pages ────────────────────────────────────────────────────────
+// ─── Guardia de permisos (bloquea acceso directo por URL) ─────────────────────
+
+function PermissionGuard({ moduleKey, children }: { moduleKey: PermKey; children: React.ReactNode }) {
+  const { user }                    = useAuth();
+  const { hasPermission, loaded }   = usePermissions();
+
+  // Mientras los permisos no carguen no redirigir (evitar parpadeo)
+  if (!loaded) return null;
+
+  if (!hasPermission(user?.role, moduleKey)) {
+    return <Navigate to="/dashboard" replace />;
+  }
+  return <>{children}</>;
+}
+
+// ─── Páginas placeholder ──────────────────────────────────────────────────────
 
 const FleetVehiclesPage = () => (
   <PlaceholderPage icon={Truck} title="Vehículos"
@@ -83,15 +102,6 @@ const OEEDowntimePage = () => (
     ]} accentColor="#2980b9" />
 );
 
-const AuditsCalendarPage = () => (
-  <PlaceholderPage icon={ClipboardCheck} title="Calendario de Auditorías"
-    subtitle="Vista de calendario con todas las auditorías programadas y completadas."
-    features={[
-      { label: 'Vista mensual', description: 'Todas las auditorías del mes en un solo vistazo.' },
-      { label: 'Filtros por área', description: 'Filtrar por área o auditor.' },
-      { label: 'Arrastrar y soltar', description: 'Reprogramar auditorías con drag & drop.' },
-    ]} accentColor="#27ae60" />
-);
 
 // ─── Router ───────────────────────────────────────────────────────────────────
 
@@ -104,36 +114,78 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
           <Route path="/" element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
             <Route index element={<Navigate to="/dashboard" replace />} />
 
-            {/* Mantenimiento */}
-            <Route path="dashboard"           element={<DashboardPage />} />
-            <Route path="work-orders"         element={<WorkOrdersPage />} />
-            <Route path="work-orders/:id"     element={<WorkOrderDetailPage />} />
-            <Route path="assets"              element={<AssetsPage />} />
-            <Route path="maintenance"         element={<MaintenancePage />} />
-            <Route path="calendar"            element={<CalendarPage />} />
-            <Route path="checklists"          element={<ChecklistTemplatesPage />} />
-            <Route path="users"               element={<UsersPage />} />
-            <Route path="settings"            element={<SettingsPage />} />
+            {/* ── Mantenimiento ─────────────────────────────────────────── */}
+            <Route path="dashboard"   element={<DashboardPage />} />
+            <Route path="work-orders" element={<WorkOrdersPage />} />
+            <Route path="work-orders/:id" element={<WorkOrderDetailPage />} />
+            <Route path="assets"      element={
+              <PermissionGuard moduleKey="assets"><AssetsPage /></PermissionGuard>
+            } />
+            <Route path="maintenance" element={
+              <PermissionGuard moduleKey="maintenance"><MaintenancePage /></PermissionGuard>
+            } />
+            <Route path="calendar"    element={
+              <PermissionGuard moduleKey="calendar"><CalendarPage /></PermissionGuard>
+            } />
+            <Route path="checklists"  element={
+              <PermissionGuard moduleKey="checklists"><ChecklistTemplatesPage /></PermissionGuard>
+            } />
 
-            {/* Flota */}
-            <Route path="fleet"               element={<FleetDashboardPage />} />
-            <Route path="fleet/vehicles"      element={<FleetVehiclesPage />} />
-            <Route path="fleet/work-orders"   element={<FleetWorkOrdersPage />} />
-            <Route path="fleet/plans"         element={<FleetPlansPage />} />
+            {/* ── Admin ─────────────────────────────────────────────────── */}
+            <Route path="users"    element={
+              <PermissionGuard moduleKey="users"><UsersPage /></PermissionGuard>
+            } />
+            <Route path="settings" element={
+              <PermissionGuard moduleKey="settings"><SettingsPage /></PermissionGuard>
+            } />
 
-            {/* OEE */}
-            <Route path="oee"                 element={<OEEDashboardPage />} />
-            <Route path="oee/records"         element={<OEERecordsPage />} />
-            <Route path="oee/downtime"        element={<OEEDowntimePage />} />
+            {/* ── Flota ─────────────────────────────────────────────────── */}
+            <Route path="fleet" element={
+              <PermissionGuard moduleKey="fleet"><FleetDashboardPage /></PermissionGuard>
+            } />
+            <Route path="fleet/vehicles"    element={
+              <PermissionGuard moduleKey="fleet"><FleetVehiclesPage /></PermissionGuard>
+            } />
+            <Route path="fleet/work-orders" element={
+              <PermissionGuard moduleKey="fleet"><FleetWorkOrdersPage /></PermissionGuard>
+            } />
+            <Route path="fleet/plans"       element={
+              <PermissionGuard moduleKey="fleet"><FleetPlansPage /></PermissionGuard>
+            } />
 
-            {/* Auditorías */}
-            <Route path="audits"              element={<AuditsPage />} />
-            <Route path="audits/calendar"     element={<AuditsCalendarPage />} />
-            <Route path="audits/findings"     element={<AuditFindingsPage />} />
-            <Route path="audits/templates"    element={<AuditTemplatesPage />} />
-            <Route path="audits/reports/capas"   element={<ReporteCapasPage />} />
-            <Route path="audits/reports/monthly" element={<ReporteMensualPage />} />
-            <Route path="audits/:id"          element={<AuditDetailPage />} />
+            {/* ── OEE ───────────────────────────────────────────────────── */}
+            <Route path="oee" element={
+              <PermissionGuard moduleKey="oee"><OEEDashboardPage /></PermissionGuard>
+            } />
+            <Route path="oee/records"  element={
+              <PermissionGuard moduleKey="oee"><OEERecordsPage /></PermissionGuard>
+            } />
+            <Route path="oee/downtime" element={
+              <PermissionGuard moduleKey="oee"><OEEDowntimePage /></PermissionGuard>
+            } />
+
+            {/* ── Auditorías ────────────────────────────────────────────── */}
+            <Route path="audits" element={
+              <PermissionGuard moduleKey="audits"><AuditsPage /></PermissionGuard>
+            } />
+            <Route path="audits/calendar"  element={
+              <PermissionGuard moduleKey="audits"><AuditsCalendarPage /></PermissionGuard>
+            } />
+            <Route path="audits/findings"  element={
+              <PermissionGuard moduleKey="audits"><AuditFindingsPage /></PermissionGuard>
+            } />
+            <Route path="audits/templates" element={
+              <PermissionGuard moduleKey="audits"><AuditTemplatesPage /></PermissionGuard>
+            } />
+            <Route path="audits/reports/capas"   element={
+              <PermissionGuard moduleKey="audits"><ReporteCapasPage /></PermissionGuard>
+            } />
+            <Route path="audits/reports/monthly" element={
+              <PermissionGuard moduleKey="audits"><ReporteMensualPage /></PermissionGuard>
+            } />
+            <Route path="audits/:id" element={
+              <PermissionGuard moduleKey="audits"><AuditDetailPage /></PermissionGuard>
+            } />
           </Route>
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
