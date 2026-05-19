@@ -48,6 +48,7 @@ import partRequestRouter from './routes/partRequest';
 import auditsRouter from './routes/audits';
 import notificationsRouter from './routes/notifications';
 import emailRouter from './routes/email';
+import fleetRouter from './routes/fleet';
 
 const app = express();
 const httpServer = http.createServer(app);
@@ -77,6 +78,7 @@ app.use('/api/part-requests', partRequestRouter);
 app.use('/api/audits', auditsRouter);
 app.use('/api/notifications', notificationsRouter);
 app.use('/api/email', emailRouter);
+app.use('/api/fleet', fleetRouter);
 
 app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   console.error(err);

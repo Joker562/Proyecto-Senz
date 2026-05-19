@@ -30,7 +30,16 @@ model User {
   auditItemsChecked AuditItem[]    @relation("AuditItemChecker")
   capaAssigned      CapaAction[]   @relation("CapaAssigned")
   capaCreated       CapaAction[]   @relation("CapaCreated")
+  capaChangeLogs    CapaChangeLog[]
   notifications     Notification[]
+
+  // Flota
+  vehicleDriver              Vehicle[]           @relation("VehicleDriver")
+  fuelLogsLogged             FuelLog[]           @relation("FuelLoggedBy")
+  tripLogsAsDriver           TripLog[]           @relation("TripDriver")
+  tripLogsAuthorized         TripLog[]           @relation("TripAuthorizedBy")
+  vehicleAssignmentsAsDriver VehicleAssignment[] @relation("AssignmentDriver")
+  vehicleAssignmentsCreated  VehicleAssignment[] @relation("AssignmentCreatedBy")
 
   @@map("users")
 }
@@ -377,6 +386,23 @@ model CapaAction {
   closedAt     DateTime?
   closingNotes String?
 
+  // 5 Por Qués (análisis de causa raíz guiado)
+  why1         String?
+  why2         String?
+  why3         String?
+  why4         String?
+  why5         String?
+
+  // Diagrama de Ishikawa
+  ishikawaMachine     String?
+  ishikawaMethod      String?
+  ishikawaMaterial    String?
+  ishikawaManpower    String?
+  ishikawaEnvironment String?
+
+  // Evidencia fotográfica
+  evidencePhotos String? // JSON array de URLs
+
   auditId     String
   audit       Audit     @relation(fields: [auditId], references: [id])
   auditItemId String?
@@ -387,10 +413,26 @@ model CapaAction {
   createdById  String
   createdBy    User   @relation("CapaCreated", fields: [createdById], references: [id])
 
+  changeLogs   CapaChangeLog[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@map("capa_actions")
+}
+
+model CapaChangeLog {
+  id        String     @id @default(cuid())
+  capaId    String
+  capa      CapaAction @relation(fields: [capaId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User       @relation(fields: [userId], references: [id])
+  field     String
+  oldValue  String?
+  newValue  String?
+  changedAt DateTime   @default(now())
+
+  @@map("capa_change_logs")
 }
 
 model Comment {
@@ -406,4 +448,96 @@ model Comment {
   createdAt DateTime @default(now())
 
   @@map("comments")
+}
+
+// ─── Módulo de Flota ──────────────────────────────────────────────────────────
+
+model Vehicle {
+  id                 String               @id @default(cuid())
+  code               String               @unique
+  plate              String               @unique
+  brand              String
+  model              String
+  year               Int
+  color              String?
+  type               String               // "TRUCK" | "VAN" | "CAR" | "FORKLIFT" | "OTHER"
+  status             String               @default("AVAILABLE") // "AVAILABLE" | "IN_USE" | "MAINTENANCE" | "OUT_OF_SERVICE"
+  fuelType           String               @default("DIESEL") // "DIESEL" | "GASOLINE" | "ELECTRIC" | "HYBRID"
+  tankCapacity       Float?
+  currentKm          Float                @default(0)
+  area               String?
+  insuranceExpiry    DateTime?
+  verificationExpiry DateTime?
+  licenseExpiry      DateTime?
+  circulationCard    DateTime?
+  driverId           String?
+  driver             User?                @relation("VehicleDriver", fields: [driverId], references: [id])
+  fuelLogs           FuelLog[]
+  tripLogs           TripLog[]
+  assignments        VehicleAssignment[]
+  deletedAt          DateTime?
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+
+  @@map("vehicles")
+}
+
+model FuelLog {
+  id            String   @id @default(cuid())
+  vehicleId     String
+  date          DateTime
+  liters        Float
+  pricePerLiter Float
+  totalCost     Float
+  kmAtFuel      Float
+  station       String?
+  invoiceNumber String?
+  notes         String?
+  loggedById    String
+  createdAt     DateTime @default(now())
+
+  vehicle  Vehicle @relation(fields: [vehicleId], references: [id])
+  loggedBy User    @relation("FuelLoggedBy", fields: [loggedById], references: [id])
+
+  @@map("fuel_logs")
+}
+
+model TripLog {
+  id             String    @id @default(cuid())
+  vehicleId      String
+  driverId       String
+  origin         String
+  destination    String
+  purpose        String?
+  startKm        Float
+  endKm          Float?
+  distance       Float?
+  startTime      DateTime
+  endTime        DateTime?
+  status         String    @default("IN_PROGRESS") // "IN_PROGRESS" | "COMPLETED" | "CANCELLED"
+  notes          String?
+  authorizedById String?
+
+  vehicle      Vehicle @relation(fields: [vehicleId], references: [id])
+  driver       User    @relation("TripDriver", fields: [driverId], references: [id])
+  authorizedBy User?   @relation("TripAuthorizedBy", fields: [authorizedById], references: [id])
+
+  @@map("trip_logs")
+}
+
+model VehicleAssignment {
+  id          String    @id @default(cuid())
+  vehicleId   String
+  driverId    String
+  startDate   DateTime
+  endDate     DateTime?
+  type        String    @default("PERMANENT") // "PERMANENT" | "TEMPORARY"
+  notes       String?
+  createdById String
+
+  vehicle   Vehicle @relation(fields: [vehicleId], references: [id])
+  driver    User    @relation("AssignmentDriver", fields: [driverId], references: [id])
+  createdBy User    @relation("AssignmentCreatedBy", fields: [createdById], references: [id])
+
+  @@map("vehicle_assignments")
 }
