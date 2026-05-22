@@ -51,6 +51,8 @@ import emailRouter from './routes/email';
 import fleetRouter from './routes/fleet';
 import fuelRouter        from './routes/fuel';
 import maintenanceRouter from './routes/maintenance';
+import alertsRouter      from './routes/alerts';
+import reportsRouter     from './routes/reports';
 
 const app = express();
 const httpServer = http.createServer(app);
@@ -83,6 +85,8 @@ app.use('/api/email', emailRouter);
 app.use('/api/fleet', fleetRouter);
 app.use('/api/fleet/fuel',        fuelRouter);
 app.use('/api/fleet/maintenance', maintenanceRouter);
+app.use('/api/fleet/alerts',     alertsRouter);
+app.use('/api/fleet/reports',    reportsRouter);
 
 app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   console.error(err);
