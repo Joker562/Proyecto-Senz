@@ -1,7 +1,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { Car, BarChart3, Truck, AlertTriangle } from 'lucide-react';
+import { BarChart3, AlertTriangle } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { usePermissions, type PermKey } from '@/hooks/usePermissions';
 import { ThemeProvider } from '@/theme/ThemeContext';
@@ -25,7 +25,12 @@ import ReporteCapasPage from '@/pages/ReporteCapasPage';
 import ReporteMensualPage from '@/pages/ReporteMensualPage';
 import AuditsCalendarPage from '@/pages/AuditsCalendarPage';
 import OEEDashboardPage from '@/pages/OEEDashboardPage';
-import FleetDashboardPage from '@/pages/FleetDashboardPage';
+import FleetDashboardPage    from '@/pages/fleet/FleetDashboardPage';
+import FleetVehiclesPage     from '@/pages/fleet/FleetVehiclesPage';
+import FleetFuelPage         from '@/pages/fleet/FleetFuelPage';
+import FleetMaintenancePage  from '@/pages/fleet/FleetMaintenancePage';
+import FleetAlertsPage       from '@/pages/fleet/FleetAlertsPage';
+import FleetReportsPage      from '@/pages/fleet/FleetReportsPage';
 import '@/index.css';
 
 // ─── Guardia de autenticación ─────────────────────────────────────────────────
@@ -51,36 +56,6 @@ function PermissionGuard({ moduleKey, children }: { moduleKey: PermKey; children
 }
 
 // ─── Páginas placeholder ──────────────────────────────────────────────────────
-
-const FleetVehiclesPage = () => (
-  <PlaceholderPage icon={Truck} title="Vehículos"
-    subtitle="Gestión completa del catálogo de vehículos: registro, datos técnicos y seguimiento de kilometraje."
-    features={[
-      { label: 'Registro de vehículos', description: 'Placa, VIN, marca, modelo, año, tipo de combustible y área asignada.' },
-      { label: 'Control de kilometraje', description: 'Registro de km actuales para disparar alertas de mantenimiento preventivo.' },
-      { label: 'Historial de servicios', description: 'Todo el historial de órdenes de trabajo y costos asociados por vehículo.' },
-    ]} />
-);
-
-const FleetWorkOrdersPage = () => (
-  <PlaceholderPage icon={Car} title="OT de Vehículos"
-    subtitle="Órdenes de trabajo específicas para mantenimiento preventivo y correctivo de la flota vehicular."
-    features={[
-      { label: 'Tipos de servicio', description: 'Cambio de aceite, frenos, llantas, revisión técnica, reparaciones.' },
-      { label: 'Costo de servicio', description: 'Registro de costo estimado vs. real por orden de trabajo.' },
-      { label: 'Km al servicio', description: 'Registro del kilometraje al momento de cada intervención.' },
-    ]} />
-);
-
-const FleetPlansPage = () => (
-  <PlaceholderPage icon={Car} title="Planes de Servicio"
-    subtitle="Configuración de mantenimientos preventivos automáticos por intervalo de tiempo o kilometraje."
-    features={[
-      { label: 'Trigger por km', description: 'Generar OT automáticamente al alcanzar un umbral de kilometraje.' },
-      { label: 'Trigger por tiempo', description: 'Mantenimientos periódicos por fecha: cada 3 meses, semestral, anual.' },
-      { label: 'Notificaciones anticipadas', description: 'Alertas al acercarse al próximo servicio para planificar con anticipación.' },
-    ]} />
-);
 
 const OEERecordsPage = () => (
   <PlaceholderPage icon={BarChart3} title="Registros OEE"
@@ -143,14 +118,20 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
             <Route path="fleet" element={
               <PermissionGuard moduleKey="fleet"><FleetDashboardPage /></PermissionGuard>
             } />
-            <Route path="fleet/vehicles"    element={
+            <Route path="fleet/vehicles" element={
               <PermissionGuard moduleKey="fleet"><FleetVehiclesPage /></PermissionGuard>
             } />
-            <Route path="fleet/work-orders" element={
-              <PermissionGuard moduleKey="fleet"><FleetWorkOrdersPage /></PermissionGuard>
+            <Route path="fleet/fuel" element={
+              <PermissionGuard moduleKey="fleet"><FleetFuelPage /></PermissionGuard>
             } />
-            <Route path="fleet/plans"       element={
-              <PermissionGuard moduleKey="fleet"><FleetPlansPage /></PermissionGuard>
+            <Route path="fleet/maintenance" element={
+              <PermissionGuard moduleKey="fleet"><FleetMaintenancePage /></PermissionGuard>
+            } />
+            <Route path="fleet/alerts" element={
+              <PermissionGuard moduleKey="fleet"><FleetAlertsPage /></PermissionGuard>
+            } />
+            <Route path="fleet/reports" element={
+              <PermissionGuard moduleKey="fleet"><FleetReportsPage /></PermissionGuard>
             } />
 
             {/* ── OEE ───────────────────────────────────────────────────── */}

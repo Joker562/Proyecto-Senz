@@ -2,10 +2,11 @@ import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, ClipboardList, Factory, Calendar, Users, LogOut, Menu, X,
   CalendarDays, CheckSquare, Settings, Wrench, Car, BarChart3, ClipboardCheck,
-  Truck, AlertTriangle, ClipboardX, FileText, TrendingUp,
+  Truck, AlertTriangle, ClipboardX, FileText, TrendingUp, Droplets,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/hooks/useAuth';
+import { usePermissions, type PermKey } from '@/hooks/usePermissions';
 import Toaster from '@/components/ui/Toaster';
 import { cn } from '@/lib/utils';
 import { useTheme } from '@/theme/ThemeContext';
@@ -13,8 +14,8 @@ import { THEMES } from '@/theme/themes';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type ModuleId = 'maintenance' | 'fleet' | 'oee' | 'audits' | 'admin';
-type ModuleKey = 'dashboard' | 'workOrders' | 'assets' | 'maintenance' | 'calendar' | 'checklists' | 'users' | 'settings';
+type ModuleId  = 'maintenance' | 'fleet' | 'oee' | 'audits' | 'admin';
+type ModuleKey = PermKey;
 
 interface NavItemDef {
   to: string;
@@ -28,12 +29,12 @@ interface NavItemDef {
 
 // ─── Module tabs ──────────────────────────────────────────────────────────────
 
-const MODULE_TABS: Array<{ id: ModuleId; label: string; icon: React.ElementType; defaultPath: string }> = [
+const MODULE_TABS: Array<{ id: ModuleId; label: string; icon: React.ElementType; defaultPath: string; permKey?: PermKey }> = [
   { id: 'maintenance', label: 'Mtto',      icon: Wrench,         defaultPath: '/dashboard' },
-  { id: 'fleet',       label: 'Flota',     icon: Car,            defaultPath: '/fleet' },
-  { id: 'oee',         label: 'OEE',       icon: BarChart3,      defaultPath: '/oee' },
-  { id: 'audits',      label: 'Auditoría', icon: ClipboardCheck, defaultPath: '/audits' },
-  { id: 'admin',       label: 'Admin',     icon: Settings,       defaultPath: '/users' },
+  { id: 'fleet',       label: 'Flota',     icon: Car,            defaultPath: '/fleet',    permKey: 'fleet'  },
+  { id: 'oee',         label: 'OEE',       icon: BarChart3,      defaultPath: '/oee',      permKey: 'oee'    },
+  { id: 'audits',      label: 'Auditoría', icon: ClipboardCheck, defaultPath: '/audits',   permKey: 'audits' },
+  { id: 'admin',       label: 'Admin',     icon: Settings,       defaultPath: '/users',    permKey: 'users'  },
 ];
 
 const NAV_BY_MODULE: Record<ModuleId, NavItemDef[]> = {
@@ -46,10 +47,12 @@ const NAV_BY_MODULE: Record<ModuleId, NavItemDef[]> = {
     { to: '/checklists',  icon: CheckSquare,     label: 'Checklists', fullLabel: 'Checklists',         module: 'checklists' },
   ],
   fleet: [
-    { to: '/fleet',             icon: Car,           label: 'Dashboard', fullLabel: 'Dashboard Flota',    exact: true },
-    { to: '/fleet/vehicles',    icon: Truck,         label: 'Vehículos', fullLabel: 'Vehículos' },
-    { to: '/fleet/work-orders', icon: ClipboardList, label: 'OT',        fullLabel: 'OT de Vehículos' },
-    { to: '/fleet/plans',       icon: CalendarDays,  label: 'Planes',    fullLabel: 'Planes de Servicio' },
+    { to: '/fleet',              icon: Car,           label: 'Dashboard',  fullLabel: 'Dashboard Flota',      exact: true },
+    { to: '/fleet/vehicles',     icon: Truck,         label: 'Vehículos',  fullLabel: 'Vehículos'             },
+    { to: '/fleet/fuel',         icon: Droplets,      label: 'Combustible',fullLabel: 'Combustible'           },
+    { to: '/fleet/maintenance',  icon: CalendarDays,  label: 'Servicio',   fullLabel: 'Mantenimiento'         },
+    { to: '/fleet/alerts',       icon: AlertTriangle, label: 'Alertas',    fullLabel: 'Alertas de Flota'      },
+    { to: '/fleet/reports',      icon: BarChart3,     label: 'Reportes',   fullLabel: 'Reportes'              },
   ],
   oee: [
     { to: '/oee',          icon: BarChart3,     label: 'Dashboard', fullLabel: 'Dashboard OEE',  exact: true },
@@ -57,15 +60,15 @@ const NAV_BY_MODULE: Record<ModuleId, NavItemDef[]> = {
     { to: '/oee/downtime', icon: AlertTriangle, label: 'Paros',     fullLabel: 'Eventos de Paro' },
   ],
   audits: [
-    { to: '/audits',                  icon: ClipboardCheck, label: 'Auditorías', fullLabel: 'Auditorías',          exact: true },
-    { to: '/audits/calendar',         icon: CalendarDays,   label: 'Calendario', fullLabel: 'Calendario' },
-    { to: '/audits/findings',         icon: ClipboardX,     label: 'Hallazgos',  fullLabel: 'Hallazgos' },
-    { to: '/audits/templates',        icon: FileText,       label: 'Plantillas', fullLabel: 'Plantillas' },
-    { to: '/audits/reports/capas',    icon: AlertTriangle,  label: 'CAPAs',      fullLabel: 'Reporte CAPAs' },
-    { to: '/audits/reports/monthly',  icon: TrendingUp,     label: 'Mensual',    fullLabel: 'Cumplimiento Mensual' },
+    { to: '/audits',                 icon: ClipboardCheck, label: 'Auditorías', fullLabel: 'Auditorías',          exact: true },
+    { to: '/audits/calendar',        icon: CalendarDays,   label: 'Calendario', fullLabel: 'Calendario' },
+    { to: '/audits/findings',        icon: ClipboardX,     label: 'Hallazgos',  fullLabel: 'Hallazgos' },
+    { to: '/audits/templates',       icon: FileText,       label: 'Plantillas', fullLabel: 'Plantillas' },
+    { to: '/audits/reports/capas',   icon: AlertTriangle,  label: 'CAPAs',      fullLabel: 'Reporte CAPAs' },
+    { to: '/audits/reports/monthly', icon: TrendingUp,     label: 'Mensual',    fullLabel: 'Cumplimiento Mensual' },
   ],
   admin: [
-    { to: '/users',    icon: Users,    label: 'Usuarios', fullLabel: 'Usuarios',       module: 'users' },
+    { to: '/users',    icon: Users,    label: 'Usuarios', fullLabel: 'Usuarios',       module: 'users'    },
     { to: '/settings', icon: Settings, label: 'Config',   fullLabel: 'Configuración',  module: 'settings' },
   ],
 };
@@ -78,21 +81,9 @@ function getActiveModule(pathname: string): ModuleId {
   return 'maintenance';
 }
 
-// ─── Permissions ──────────────────────────────────────────────────────────────
-
-type RolePerms = Record<ModuleKey, boolean>;
-const DEFAULT_PERMISSIONS: Record<string, RolePerms> = {
-  ADMIN:      { dashboard: true,  workOrders: true,  assets: true,  maintenance: true,  calendar: true,  checklists: true,  users: true,  settings: true  },
-  SUPERVISOR: { dashboard: true,  workOrders: true,  assets: true,  maintenance: true,  calendar: true,  checklists: true,  users: false, settings: false },
-  TECHNICIAN: { dashboard: true,  workOrders: true,  assets: false, maintenance: false, calendar: true,  checklists: false, users: false, settings: false },
-  EXECUTIVE:  { dashboard: true,  workOrders: true,  assets: false, maintenance: false, calendar: false, checklists: false, users: false, settings: false },
-};
-
 const ROLE_LABELS: Record<string, string> = {
   ADMIN: 'Administrador', SUPERVISOR: 'Supervisor', TECHNICIAN: 'Técnico', EXECUTIVE: 'Directivo',
 };
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function useIsMobile() {
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
@@ -107,25 +98,34 @@ function useIsMobile() {
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function AppLayout() {
-  const { user, logout } = useAuth();
-  const navigate         = useNavigate();
-  const location         = useLocation();
-  const isMobile         = useIsMobile();
+  const { user, logout }               = useAuth();
+  const navigate                       = useNavigate();
+  const location                       = useLocation();
+  const isMobile                       = useIsMobile();
   const { themeKey, theme, setThemeKey } = useTheme();
+  const { fetchPermissions, hasPermission, getRolePerms } = usePermissions();
 
-  const [drawerOpen, setDrawerOpen]             = useState(false);
+  const [drawerOpen,       setDrawerOpen]       = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [notifCount]                            = useState(3); // mock: 3 vencidas
+  const [notifCount]                            = useState(3);
+
+  // Cargar permisos desde API al montar
+  useEffect(() => { fetchPermissions(); }, [fetchPermissions]);
 
   const activeModule = getActiveModule(location.pathname);
+  const userRole     = user?.role ?? 'ADMIN';
+  const perms        = getRolePerms(userRole);
 
-  const userRole   = user?.role ?? 'ADMIN';
-  const perms: RolePerms = DEFAULT_PERMISSIONS[userRole] ?? DEFAULT_PERMISSIONS.ADMIN;
+  // Filtrar tabs de módulo según permisos del rol
+  const visibleModuleTabs = MODULE_TABS.filter((mod) => {
+    if (!mod.permKey) return true;                              // maintenance siempre visible
+    if (mod.id === 'admin') return perms.users || perms.settings;
+    return hasPermission(userRole, mod.permKey);
+  });
+
   const allNavItems = NAV_BY_MODULE[activeModule];
-  const visibleNav  = activeModule === 'maintenance'
-    ? allNavItems.filter((item) => !item.module || perms[item.module])
-    : activeModule === 'admin'
-    ? allNavItems.filter((item) => !item.module || perms[item.module])
+  const visibleNav  = (activeModule === 'maintenance' || activeModule === 'admin')
+    ? allNavItems.filter((item) => !item.module || perms[item.module as ModuleKey])
     : allNavItems;
   const bottomNav = visibleNav.slice(0, 5);
 
@@ -185,8 +185,8 @@ export default function AppLayout() {
       gridTemplateColumns: collapsed ? '1fr' : '1fr 1fr',
       gap: 3,
     }}>
-      {MODULE_TABS.map((mod) => {
-        const Icon = mod.icon;
+      {visibleModuleTabs.map((mod) => {
+        const Icon     = mod.icon;
         const isActive = activeModule === mod.id;
         return (
           <button
@@ -223,9 +223,7 @@ export default function AppLayout() {
       <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', paddingTop: 6 }}>
         {Object.entries(THEMES).map(([key, t]) => (
           <button
-            key={key}
-            title={t.name}
-            onClick={() => setThemeKey(key)}
+            key={key} title={t.name} onClick={() => setThemeKey(key)}
             style={{
               width: 16, height: 16, borderRadius: '50%',
               background: t.accent, cursor: 'pointer',
@@ -296,8 +294,7 @@ export default function AppLayout() {
             style={{
               background: 'transparent', border: 'none', cursor: 'pointer',
               color: theme.sidebarMuted, fontSize: 11, fontFamily: 'IBM Plex Sans, sans-serif',
-              display: 'flex', alignItems: 'center', gap: 6,
-              padding: '4px 0',
+              display: 'flex', alignItems: 'center', gap: 6, padding: '4px 0',
             }}
           >
             {sidebarCollapsed
