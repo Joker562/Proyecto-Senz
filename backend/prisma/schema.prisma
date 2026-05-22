@@ -113,6 +113,10 @@ model WorkOrder {
   maintenancePlanId String?
   maintenancePlan   MaintenancePlan? @relation(fields: [maintenancePlanId], references: [id])
 
+  // Flota: presente cuando la OT es de mantenimiento vehicular
+  vehicleId String?
+  vehicle   Vehicle? @relation("VehicleWorkOrders", fields: [vehicleId], references: [id])
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -143,6 +147,10 @@ model MaintenancePlan {
 
   checklistTemplateId String?
   checklistTemplate   ChecklistTemplate? @relation(fields: [checklistTemplateId], references: [id])
+
+  // Flota: presente cuando el plan es de mantenimiento vehicular
+  vehicleId String?
+  vehicle   Vehicle? @relation("VehicleMaintenancePlans", fields: [vehicleId], references: [id])
 
   workOrders WorkOrder[]
 
@@ -475,6 +483,9 @@ model Vehicle {
   fuelLogs           FuelLog[]
   tripLogs           TripLog[]
   assignments        VehicleAssignment[]
+  // Mantenimiento vehicular — reutiliza modelos de activos
+  maintenancePlans   MaintenancePlan[]    @relation("VehicleMaintenancePlans")
+  workOrders         WorkOrder[]          @relation("VehicleWorkOrders")
   deletedAt          DateTime?
   createdAt          DateTime             @default(now())
   updatedAt          DateTime             @updatedAt
