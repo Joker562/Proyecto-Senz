@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Plus, Droplets, TrendingDown, TrendingUp, AlertTriangle } from 'lucide-react';
 import { Card, CardHeader } from '@/components/ui/Card';
 import { api } from '@/services/api';

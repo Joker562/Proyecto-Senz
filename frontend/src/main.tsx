@@ -43,12 +43,10 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 // ─── Guardia de permisos (bloquea acceso directo por URL) ─────────────────────
 
 function PermissionGuard({ moduleKey, children }: { moduleKey: PermKey; children: React.ReactNode }) {
-  const { user }                    = useAuth();
-  const { hasPermission, loaded }   = usePermissions();
+  const { user }            = useAuth();
+  const { hasPermission }   = usePermissions();
 
-  // Mientras los permisos no carguen no redirigir (evitar parpadeo)
-  if (!loaded) return null;
-
+  // Usa DEFAULT_PERMISSIONS inmediatamente (sin pantalla en blanco al cargar)
   if (!hasPermission(user?.role, moduleKey)) {
     return <Navigate to="/dashboard" replace />;
   }

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { AlertTriangle, FileText, Fuel, CheckCircle, RefreshCw } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { api } from '@/services/api';
