@@ -49,6 +49,7 @@ import auditsRouter from './routes/audits';
 import notificationsRouter from './routes/notifications';
 import emailRouter from './routes/email';
 import fleetRouter from './routes/fleet';
+import fuelRouter  from './routes/fuel';
 
 const app = express();
 const httpServer = http.createServer(app);
@@ -79,6 +80,7 @@ app.use('/api/audits', auditsRouter);
 app.use('/api/notifications', notificationsRouter);
 app.use('/api/email', emailRouter);
 app.use('/api/fleet', fleetRouter);
+app.use('/api/fleet/fuel', fuelRouter);
 
 app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   console.error(err);
