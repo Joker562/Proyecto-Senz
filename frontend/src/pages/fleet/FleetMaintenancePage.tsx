@@ -4,6 +4,7 @@ import { Card, CardHeader } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { api } from '@/services/api';
 import { useToast } from '@/hooks/useToast';
+import { useAuth } from '@/hooks/useAuth';
 
 // ── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -53,7 +54,8 @@ const labelStyle: React.CSSProperties = {
 // ── Componente ───────────────────────────────────────────────────────────────
 
 export default function FleetMaintenancePage() {
-  const toast = useToast();
+  const toast   = useToast();
+  const { user } = useAuth();
   const [upcoming, setUpcoming]   = useState<UpcomingItem[]>([]);
   const [vehicles, setVehicles]   = useState<VehicleOption[]>([]);
   const [loading, setLoading]     = useState(true);
@@ -67,23 +69,23 @@ export default function FleetMaintenancePage() {
     serviceType:     'OIL_CHANGE',
     frequencyMonths: '',
     kmThreshold:     '',
-    firstDueDate:    '',
+    nextDueDate:     '',
     description:     '',
   });
 
   const load = useCallback(() => {
     setLoading(true);
     Promise.all([
-      api.get<{ data: UpcomingItem[] }>('/fleet/maintenance/upcoming'),
-      api.get<{ data: VehicleOption[] }>('/fleet/vehicles'),
+      api.get<{ total: number; overdue: number; critical: number; warning: number; items: UpcomingItem[] }>('/fleet/maintenance/upcoming'),
+      api.get<VehicleOption[]>('/fleet/vehicles'),
     ])
       .then(([up, v]) => {
-        setUpcoming(up.data.data);
-        setVehicles(v.data.data);
+        setUpcoming(up.data.items ?? []);
+        setVehicles(v.data ?? []);
       })
       .catch(() => toast.push('Error al cargar mantenimientos', 'error'))
       .finally(() => setLoading(false));
-  }, []); // eslint-disable-line
+  }, [toast]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -93,18 +95,21 @@ export default function FleetMaintenancePage() {
     if (!form.frequencyMonths && !form.kmThreshold) return toast.push('Define al menos un trigger (meses o km)', 'warning');
     setSaving(true);
     try {
+      const selectedVehicle = vehicles.find(v => v.id === form.vehicleId);
       await api.post('/fleet/maintenance/plan', {
-        vehicleId:       form.vehicleId,
-        name:            form.name,
-        serviceType:     form.serviceType,
-        description:     form.description || null,
-        frequencyMonths: form.frequencyMonths ? Number(form.frequencyMonths) : null,
-        kmThreshold:     form.kmThreshold    ? Number(form.kmThreshold)    : null,
-        firstDueDate:    form.firstDueDate   ? new Date(form.firstDueDate).toISOString() : null,
+        vehicleId:        form.vehicleId,
+        name:             form.name || undefined,
+        serviceType:      form.serviceType,
+        description:      form.description || null,
+        frequencyMonths:  form.frequencyMonths  ? Number(form.frequencyMonths)  : undefined,
+        kmThreshold:      form.kmThreshold      ? Number(form.kmThreshold)      : undefined,
+        nextDueDate:      form.nextDueDate      ? new Date(form.nextDueDate).toISOString() : undefined,
+        currentVehicleKm: selectedVehicle?.currentKm,
+        createdById:      user?.id,
       });
       toast.push('Plan de mantenimiento creado', 'success');
       setModalOpen(false);
-      setForm({ vehicleId: '', name: '', serviceType: 'OIL_CHANGE', frequencyMonths: '', kmThreshold: '', firstDueDate: '', description: '' });
+      setForm({ vehicleId: '', name: '', serviceType: 'OIL_CHANGE', frequencyMonths: '', kmThreshold: '', nextDueDate: '', description: '' });
       load();
     } catch (err: any) {
       toast.push(err.response?.data?.error ?? 'Error al guardar', 'error');
@@ -256,7 +261,7 @@ export default function FleetMaintenancePage() {
               </div>
               <div>
                 <label style={labelStyle}>Primera Fecha de Vencimiento</label>
-                <input type="date" value={form.firstDueDate} onChange={e => setForm(p => ({ ...p, firstDueDate: e.target.value }))} style={inputStyle} />
+                <input type="date" value={form.nextDueDate} onChange={e => setForm(p => ({ ...p, nextDueDate: e.target.value }))} style={inputStyle} />
               </div>
               <div>
                 <label style={labelStyle}>Frecuencia (meses)</label>

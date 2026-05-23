@@ -6,13 +6,30 @@ import { useToast } from '@/hooks/useToast';
 
 // ── Tipos ────────────────────────────────────────────────────────────────────
 
-interface VehicleOption { id: string; code: string; plate: string; brand: string; model: string }
+interface VehicleOption {
+  id: string; code: string; plate: string; brand: string; model: string; currentKm: number;
+}
 
 interface FuelLog {
   id: string; date: string; liters: number; pricePerLiter: number;
   totalCost: number; kmAtFuel: number; station: string | null;
   invoiceNumber: string | null; notes: string | null;
+  rendimiento: number | null;
   loggedBy: { name: string };
+}
+
+// ── Respuesta del endpoint GET /fleet/fuel/:vehicleId ─────────────────────────
+interface FuelHistoryResponse {
+  vehicle: VehicleOption;
+  avgRendimiento: number | null;
+  totalRegistros: number;
+  logs: FuelLog[];
+}
+
+// ── Helper (fuera del componente para evitar problemas con Fast Refresh) ───────
+
+function isAlert(notes: string | null): boolean {
+  return !!notes && notes.startsWith('[ALERTA]');
 }
 
 // ── Estilos ──────────────────────────────────────────────────────────────────
@@ -26,47 +43,78 @@ const inputStyle: React.CSSProperties = {
 
 const labelStyle: React.CSSProperties = {
   display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--sz-muted)',
-  textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 4,
+  textTransform: 'uppercase' as const, letterSpacing: '.4px', marginBottom: 4,
 };
 
 // ── Componente ───────────────────────────────────────────────────────────────
 
 export default function FleetFuelPage() {
   const toast = useToast();
-  const [vehicles, setVehicles] = useState<VehicleOption[]>([]);
-  const [vehicleId, setVehicleId] = useState('');
-  const [logs, setLogs]           = useState<FuelLog[]>([]);
-  const [loading, setLoading]     = useState(false);
-  const [modalOpen, setModalOpen] = useState(false);
-  const [saving, setSaving]       = useState(false);
+
+  const [vehicles,   setVehicles]   = useState<VehicleOption[]>([]);
+  const [vehicleId,  setVehicleId]  = useState('');
+  const [logs,       setLogs]       = useState<FuelLog[]>([]);
+  const [avgRend,    setAvgRend]    = useState<number | null>(null);
+  const [loading,    setLoading]    = useState(false);
+  const [modalOpen,  setModalOpen]  = useState(false);
+  const [saving,     setSaving]     = useState(false);
 
   const [form, setForm] = useState({
-    date: new Date().toISOString().slice(0, 10),
-    liters: '', pricePerLiter: '', kmAtFuel: '',
-    station: '', invoiceNumber: '', notes: '',
+    date:          new Date().toISOString().slice(0, 10),
+    liters:        '',
+    pricePerLiter: '',
+    kmAtFuel:      '',
+    station:       '',
+    invoiceNumber: '',
+    notes:         '',
   });
 
-  // Cargar lista de vehículos
+  // ── Cargar lista de vehículos ─────────────────────────────────────────────
+
   useEffect(() => {
-    api.get<{ data: VehicleOption[] }>('/fleet/vehicles')
-      .then(r => setVehicles(r.data.data))
+    // GET /fleet/vehicles devuelve un array directo
+    api.get<VehicleOption[]>('/fleet/vehicles')
+      .then(r => setVehicles(r.data ?? []))
       .catch(() => toast.push('Error al cargar vehículos', 'error'));
   }, []); // eslint-disable-line
 
-  // Cargar logs del vehículo seleccionado
+  // ── Cargar historial de cargas del vehículo seleccionado ──────────────────
+
   const loadLogs = useCallback(() => {
     if (!vehicleId) return;
     setLoading(true);
-    api.get<{ data: FuelLog[] }>(`/fleet/fuel/${vehicleId}`)
-      .then(r => setLogs(r.data.data))
+    // GET /fleet/fuel/:vehicleId devuelve { vehicle, avgRendimiento, totalRegistros, logs }
+    api.get<FuelHistoryResponse>(`/fleet/fuel/${vehicleId}`)
+      .then(r => {
+        setLogs(r.data.logs ?? []);
+        setAvgRend(r.data.avgRendimiento);
+      })
       .catch(() => toast.push('Error al cargar registros', 'error'))
       .finally(() => setLoading(false));
-  }, [vehicleId]); // eslint-disable-line
+  }, [vehicleId, toast]);
 
   useEffect(() => { loadLogs(); }, [loadLogs]);
 
+  // ── Guardar nueva carga ───────────────────────────────────────────────────
+
   async function handleSave() {
-    if (!vehicleId) return toast.push('Selecciona un vehículo', 'warning');
+    if (!vehicleId)         return toast.push('Selecciona un vehículo', 'warning');
+    if (!form.liters)       return toast.push('Ingresa los litros', 'warning');
+    if (!form.pricePerLiter)return toast.push('Ingresa el precio por litro', 'warning');
+    if (!form.kmAtFuel)     return toast.push('Ingresa el km al cargar', 'warning');
+
+    const currentKm = vehicles.find(v => v.id === vehicleId)?.currentKm ?? 0;
+    const kmAtFuelN = Number(form.kmAtFuel);
+    if (kmAtFuelN > 0 && kmAtFuelN <= currentKm) {
+      return toast.push(`El km al cargar debe ser mayor al km actual (${currentKm.toLocaleString('es-MX')})`, 'warning');
+    }
+
+    // Necesitamos el loggedById: lo obtenemos del localStorage (persist store)
+    const authRaw   = localStorage.getItem('auth-store');
+    const authStore = authRaw ? JSON.parse(authRaw) : null;
+    const loggedById = authStore?.state?.user?.id;
+    if (!loggedById) return toast.push('Sesión no disponible', 'error');
+
     setSaving(true);
     try {
       await api.post('/fleet/fuel', {
@@ -74,10 +122,11 @@ export default function FleetFuelPage() {
         date:          new Date(form.date).toISOString(),
         liters:        Number(form.liters),
         pricePerLiter: Number(form.pricePerLiter),
-        kmAtFuel:      Number(form.kmAtFuel),
+        kmAtFuel:      kmAtFuelN,
         station:       form.station       || null,
         invoiceNumber: form.invoiceNumber || null,
         notes:         form.notes         || null,
+        loggedById,
       });
       toast.push('Carga de combustible registrada', 'success');
       setModalOpen(false);
@@ -90,14 +139,18 @@ export default function FleetFuelPage() {
     }
   }
 
+  // ── Cálculos derivados ────────────────────────────────────────────────────
+
   const totalCost   = logs.reduce((s, l) => s + l.totalCost, 0);
   const totalLiters = logs.reduce((s, l) => s + l.liters, 0);
 
-  function noteStyle(notes: string | null) {
-    if (!notes) return null;
-    if (notes.startsWith('[ALERTA]')) return { color: '#c0392b', icon: <AlertTriangle size={12} style={{ color: '#c0392b', flexShrink: 0 }} /> };
-    return null;
-  }
+  const liveCost = Number(form.liters) > 0 && Number(form.pricePerLiter) > 0
+    ? Number(form.liters) * Number(form.pricePerLiter)
+    : null;
+
+  const selectedVehicle = vehicles.find(v => v.id === vehicleId);
+
+  // ── Render ────────────────────────────────────────────────────────────────
 
   return (
     <div style={{ minHeight: '100%', background: 'var(--sz-bg)', paddingBottom: 32 }}>
@@ -128,15 +181,25 @@ export default function FleetFuelPage() {
         <Card style={{ marginBottom: 16 }}>
           <div style={{ padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
             <Droplets size={18} style={{ color: 'var(--sz-accent)', flexShrink: 0 }} />
-            <div style={{ flex: 1, maxWidth: 400 }}>
+            <div style={{ flex: 1, maxWidth: 440 }}>
               <label style={labelStyle}>Seleccionar Vehículo</label>
               <select value={vehicleId} onChange={e => setVehicleId(e.target.value)} style={inputStyle}>
                 <option value="">— Elige un vehículo —</option>
                 {vehicles.map(v => (
-                  <option key={v.id} value={v.id}>{v.code} — {v.plate} ({v.brand} {v.model})</option>
+                  <option key={v.id} value={v.id}>
+                    {v.code} — {v.plate} ({v.brand} {v.model})
+                  </option>
                 ))}
               </select>
             </div>
+            {selectedVehicle && (
+              <div style={{ fontSize: 11, color: 'var(--sz-muted)' }}>
+                Km actuales:&nbsp;
+                <strong style={{ fontFamily: 'IBM Plex Mono, monospace', color: 'var(--sz-text)' }}>
+                  {selectedVehicle.currentKm.toLocaleString('es-MX')} km
+                </strong>
+              </div>
+            )}
           </div>
         </Card>
 
@@ -146,12 +209,13 @@ export default function FleetFuelPage() {
           </div>
         ) : (
           <>
-            {/* KPIs rápidos */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12, marginBottom: 16 }}>
+            {/* KPIs */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 16 }}>
               {[
-                { label: 'Registros',      value: logs.length,                                            color: '#2980b9', Icon: Droplets },
-                { label: 'Total litros',   value: `${totalLiters.toLocaleString('es-MX', { maximumFractionDigits: 1 })} L`,  color: '#27ae60', Icon: TrendingUp },
-                { label: 'Costo total',    value: `$${totalCost.toLocaleString('es-MX', { maximumFractionDigits: 0 })}`,     color: '#e67e22', Icon: TrendingDown },
+                { label: 'Registros',      value: String(logs.length),                                                     color: '#2980b9', Icon: Droplets   },
+                { label: 'Total litros',   value: `${totalLiters.toLocaleString('es-MX', { maximumFractionDigits: 1 })} L`, color: '#27ae60', Icon: TrendingUp },
+                { label: 'Costo total',    value: `$${totalCost.toLocaleString('es-MX', { maximumFractionDigits: 0 })}`,    color: '#e67e22', Icon: TrendingDown},
+                { label: 'Prom. km/L',     value: avgRend !== null ? `${avgRend.toFixed(2)} km/L` : 'N/D',                  color: '#8b5cf6', Icon: TrendingUp },
               ].map(({ label, value, color, Icon }) => (
                 <Card key={label} topAccent={color}>
                   <div style={{ padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -160,7 +224,7 @@ export default function FleetFuelPage() {
                     </div>
                     <div>
                       <div style={{ fontSize: 11, color: 'var(--sz-muted)', textTransform: 'uppercase', letterSpacing: '.4px', fontWeight: 600 }}>{label}</div>
-                      <div style={{ fontSize: 18, fontWeight: 800, color, fontFamily: 'IBM Plex Mono, monospace' }}>{value}</div>
+                      <div style={{ fontSize: 17, fontWeight: 800, color, fontFamily: 'IBM Plex Mono, monospace' }}>{value}</div>
                     </div>
                   </div>
                 </Card>
@@ -173,33 +237,36 @@ export default function FleetFuelPage() {
               {loading ? (
                 <div style={{ padding: '32px', textAlign: 'center', color: 'var(--sz-muted)', fontSize: 13 }}>Cargando...</div>
               ) : logs.length === 0 ? (
-                <div style={{ padding: '32px', textAlign: 'center', color: 'var(--sz-muted)', fontSize: 13 }}>Sin registros de combustible</div>
+                <div style={{ padding: '32px', textAlign: 'center', color: 'var(--sz-muted)', fontSize: 13 }}>Sin registros de combustible para este vehículo</div>
               ) : (
                 <div style={{ overflowX: 'auto' }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                     <thead>
                       <tr style={{ background: 'var(--sz-bg)' }}>
-                        {['Fecha', 'Km al Cargar', 'Litros', 'Precio/L', 'Total', 'Estación', 'Folio', 'Notas', 'Registrado por'].map(h => (
+                        {['Fecha', 'Km al Cargar', 'Litros', 'Precio/L', 'Total', 'Rendimiento', 'Estación', 'Folio', 'Notas', 'Registrado por'].map(h => (
                           <th key={h} style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 600, color: 'var(--sz-muted)', fontSize: 11, textTransform: 'uppercase', letterSpacing: '.4px', borderBottom: '1px solid var(--sz-border)', whiteSpace: 'nowrap' }}>{h}</th>
                         ))}
                       </tr>
                     </thead>
                     <tbody>
                       {logs.map((l, i) => {
-                        const ns = noteStyle(l.notes);
+                        const alert = isAlert(l.notes);
                         return (
-                          <tr key={l.id} style={{ borderBottom: '1px solid var(--sz-border)', background: i % 2 === 0 ? 'var(--sz-card)' : 'var(--sz-bg)' }}>
+                          <tr key={l.id} className="sz-table-row" style={{ borderBottom: '1px solid var(--sz-border)', background: i % 2 === 0 ? 'var(--sz-card)' : 'var(--sz-bg)' }}>
                             <td style={{ padding: '9px 12px', whiteSpace: 'nowrap', color: 'var(--sz-text)' }}>{new Date(l.date).toLocaleDateString('es-MX')}</td>
                             <td style={{ padding: '9px 12px', fontFamily: 'IBM Plex Mono, monospace', fontSize: 11, whiteSpace: 'nowrap' }}>{l.kmAtFuel.toLocaleString('es-MX')} km</td>
                             <td style={{ padding: '9px 12px', fontFamily: 'IBM Plex Mono, monospace', fontSize: 11, whiteSpace: 'nowrap', color: '#27ae60', fontWeight: 700 }}>{l.liters.toFixed(2)} L</td>
                             <td style={{ padding: '9px 12px', fontFamily: 'IBM Plex Mono, monospace', fontSize: 11, whiteSpace: 'nowrap' }}>${l.pricePerLiter.toFixed(2)}</td>
                             <td style={{ padding: '9px 12px', fontFamily: 'IBM Plex Mono, monospace', fontSize: 11, whiteSpace: 'nowrap', fontWeight: 700, color: '#e67e22' }}>${l.totalCost.toLocaleString('es-MX', { maximumFractionDigits: 2 })}</td>
+                            <td style={{ padding: '9px 12px', fontFamily: 'IBM Plex Mono, monospace', fontSize: 11, whiteSpace: 'nowrap', color: l.rendimiento != null ? '#8b5cf6' : 'var(--sz-muted)', fontWeight: l.rendimiento != null ? 700 : 400 }}>
+                              {l.rendimiento != null ? `${l.rendimiento.toFixed(2)} km/L` : '—'}
+                            </td>
                             <td style={{ padding: '9px 12px', color: 'var(--sz-muted)', whiteSpace: 'nowrap' }}>{l.station ?? '—'}</td>
                             <td style={{ padding: '9px 12px', color: 'var(--sz-muted)', whiteSpace: 'nowrap', fontFamily: 'IBM Plex Mono, monospace', fontSize: 11 }}>{l.invoiceNumber ?? '—'}</td>
                             <td style={{ padding: '9px 12px', maxWidth: 200 }}>
                               {l.notes ? (
-                                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 4, color: ns?.color ?? 'var(--sz-muted)', fontSize: 11 }}>
-                                  {ns?.icon}
+                                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 4, color: alert ? '#c0392b' : 'var(--sz-muted)', fontSize: 11 }}>
+                                  {alert && <AlertTriangle size={12} style={{ color: '#c0392b', flexShrink: 0 }} />}
                                   <span style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{l.notes.split('\n')[0]}</span>
                                 </div>
                               ) : '—'}
@@ -220,7 +287,7 @@ export default function FleetFuelPage() {
       {/* Modal nueva carga */}
       {modalOpen && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-          <div style={{ background: 'var(--sz-card)', borderRadius: 12, width: '100%', maxWidth: 500, boxShadow: '0 8px 32px rgba(0,0,0,.25)' }}>
+          <div style={{ background: 'var(--sz-card)', borderRadius: 12, width: '100%', maxWidth: 500, maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 8px 32px rgba(0,0,0,.25)' }}>
             <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--sz-border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--sz-text)' }}>Registrar Carga de Combustible</span>
               <button onClick={() => setModalOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, color: 'var(--sz-muted)' }}>✕</button>
@@ -231,20 +298,17 @@ export default function FleetFuelPage() {
                 <input type="date" value={form.date} onChange={e => setForm(p => ({ ...p, date: e.target.value }))} style={inputStyle} />
               </div>
               {[
-                { key: 'kmAtFuel'      as const, label: 'Km al Cargar',    type: 'number' },
-                { key: 'liters'        as const, label: 'Litros',           type: 'number' },
-                { key: 'pricePerLiter' as const, label: 'Precio por Litro', type: 'number' },
+                { key: 'kmAtFuel'       as const, label: 'Km al Cargar *',     type: 'number' },
+                { key: 'liters'         as const, label: 'Litros *',            type: 'number' },
+                { key: 'pricePerLiter'  as const, label: 'Precio por Litro *',  type: 'number' },
+                { key: 'station'        as const, label: 'Estación (opcional)',  type: 'text'   },
               ].map(({ key, label, type }) => (
                 <div key={key}>
                   <label style={labelStyle}>{label}</label>
                   <input type={type} value={form[key]} onChange={e => setForm(p => ({ ...p, [key]: e.target.value }))} style={inputStyle} step="any" />
                 </div>
               ))}
-              <div>
-                <label style={labelStyle}>Estación (opcional)</label>
-                <input value={form.station} onChange={e => setForm(p => ({ ...p, station: e.target.value }))} style={inputStyle} />
-              </div>
-              <div>
+              <div style={{ gridColumn: '1 / -1' }}>
                 <label style={labelStyle}>No. Factura / Folio</label>
                 <input value={form.invoiceNumber} onChange={e => setForm(p => ({ ...p, invoiceNumber: e.target.value }))} style={inputStyle} />
               </div>
@@ -252,9 +316,9 @@ export default function FleetFuelPage() {
                 <label style={labelStyle}>Notas</label>
                 <textarea value={form.notes} onChange={e => setForm(p => ({ ...p, notes: e.target.value }))} style={{ ...inputStyle, minHeight: 72, resize: 'vertical' }} />
               </div>
-              {form.liters && form.pricePerLiter && (
+              {liveCost !== null && (
                 <div style={{ gridColumn: '1 / -1', padding: '10px 12px', background: '#e8f2fb', borderRadius: 8, fontSize: 13, color: '#2980b9', fontWeight: 600 }}>
-                  Total estimado: ${(Number(form.liters) * Number(form.pricePerLiter)).toLocaleString('es-MX', { maximumFractionDigits: 2 })}
+                  Total estimado: ${liveCost.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </div>
               )}
             </div>
