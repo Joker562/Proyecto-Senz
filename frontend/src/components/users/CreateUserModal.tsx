@@ -3,6 +3,7 @@ import Modal from '@/components/ui/Modal';
 import { useToast } from '@/hooks/useToast';
 import { api } from '@/services/api';
 import type { MockUser } from '@/data/mockData';
+import { userStore } from '@/data/userStore';
 
 interface Props {
   open: boolean;
@@ -94,7 +95,6 @@ export default function CreateUserModal({ open, onClose, onCreated }: Props) {
       };
       setSubmitted(true);
 
-      // Envío de correo de bienvenida
       try {
         const mailRes = await api.post('/email/send', {
           to: newUser.email,

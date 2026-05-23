@@ -11,8 +11,8 @@ import type { AuditTemplate, AuditType } from '@/types';
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
 const FONT = 'IBM Plex Sans, sans-serif';
-const TYPE_LABEL: Record<AuditType, string> = { FIVE_S: '5S', PROCESS: 'Procesos' };
-const TYPE_COLOR: Record<AuditType, string> = { FIVE_S: '#8e44ad', PROCESS: '#2980b9' };
+const TYPE_LABEL: Record<AuditType, string> = { FIVE_S: '5S', PROCESS: 'Procesos', SAFETY: 'Seguridad' };
+const TYPE_COLOR: Record<AuditType, string> = { FIVE_S: '#8e44ad', PROCESS: '#2980b9', SAFETY: '#e74c3c' };
 
 // ─── Tipos locales del editor ─────────────────────────────────────────────────
 interface DraftItem {
@@ -463,7 +463,7 @@ function TemplateEditor({
               <div>
                 <label style={labelStyle}>Tipo</label>
                 <div style={{ display: 'flex', gap: 8 }}>
-                  {(['FIVE_S', 'PROCESS'] as AuditType[]).map(t => (
+                  {(['FIVE_S', 'PROCESS', 'SAFETY'] as AuditType[]).map(t => (
                     <label key={t} style={{ flex: 1, cursor: 'pointer' }}>
                       <input type="radio" name="type" value={t} checked={form.type === t} onChange={() => setField('type', t)} style={{ display: 'none' }} />
                       <div style={{
@@ -748,8 +748,9 @@ export default function AuditTemplatesPage() {
 
   const filtered = filterType === 'ALL' ? templates : templates.filter(t => t.type === filterType);
 
-  const fiveS = templates.filter(t => t.type === 'FIVE_S');
+  const fiveS   = templates.filter(t => t.type === 'FIVE_S');
   const process = templates.filter(t => t.type === 'PROCESS');
+  const safety  = templates.filter(t => t.type === 'SAFETY');
 
   // ── Save (create or update) ───────────────────────────────────────────────
   const handleSave = async (draft: DraftTemplate) => {
@@ -835,6 +836,7 @@ export default function AuditTemplatesPage() {
           {[
             { label: '5S', count: fiveS.length, color: TYPE_COLOR['FIVE_S'] },
             { label: 'Procesos', count: process.length, color: TYPE_COLOR['PROCESS'] },
+            { label: 'Seguridad', count: safety.length, color: TYPE_COLOR['SAFETY'] },
           ].map(({ label, count, color }) => (
             <span key={label} style={{ display: 'flex', alignItems: 'center', gap: 5, background: `${color}12`, color, fontWeight: 600, fontSize: 12, padding: '5px 10px', borderRadius: 20, fontFamily: FONT }}>
               <FileText size={12} /> {count} {label}
@@ -857,6 +859,7 @@ export default function AuditTemplatesPage() {
           { id: 'ALL' as const, label: `Todas (${templates.length})` },
           { id: 'FIVE_S' as const, label: `5S (${fiveS.length})` },
           { id: 'PROCESS' as const, label: `Procesos (${process.length})` },
+          { id: 'SAFETY' as const, label: `Seguridad (${safety.length})` },
         ].map(tab => (
           <button
             key={tab.id}

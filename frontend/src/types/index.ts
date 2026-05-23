@@ -62,7 +62,7 @@ export interface PaginatedResponse<T> {
 
 // ─── Módulo Auditorías ────────────────────────────────────────────────────────
 
-export type AuditType     = 'FIVE_S' | 'PROCESS';
+export type AuditType     = 'FIVE_S' | 'PROCESS' | 'SAFETY';
 export type AuditStatus   = 'DRAFT' | 'IN_PROGRESS' | 'COMPLETED' | 'CLOSED';
 export type AuditResult   = 'PASS' | 'FAIL' | 'NA';
 export type CapaType      = 'CORRECTIVE' | 'PREVENTIVE';
