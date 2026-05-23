@@ -41,7 +41,7 @@ export default function AuditsPage() {
 
   const total     = audits.length;
   const closed    = audits.filter((a) => a.status === 'CLOSED').length;
-  const scheduled = audits.filter((a) => a.status === 'SCHEDULED' || a.status === 'DRAFT').length;
+  const scheduled = audits.filter((a) => a.status === 'SCHEDULED').length;
   const openCapas = mockCapas.filter((c) => c.status !== 'CLOSED').length;
   const avgScore  = (() => {
     const scored = audits.filter((a) => a.score !== null);
@@ -61,7 +61,7 @@ export default function AuditsPage() {
   const filtered = filter === 'ALL'
     ? audits
     : audits.filter((a) => {
-        if (filter === 'SCHEDULED') return a.status === 'SCHEDULED' || a.status === 'DRAFT';
+        if (filter === 'SCHEDULED') return a.status === 'SCHEDULED';
         return a.status === filter;
       });
 
@@ -74,7 +74,7 @@ export default function AuditsPage() {
       code:    created.code,
       title:   created.title,
       area:    created.area,
-      type:    TYPE_LABELS[created.type] ?? created.type,
+      type:    created.type as MockAudit['type'],
       status:  'SCHEDULED',
       score:   null,
       auditor: created.auditorName,
