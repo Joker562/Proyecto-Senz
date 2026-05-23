@@ -31,6 +31,7 @@ import FleetFuelPage         from '@/pages/fleet/FleetFuelPage';
 import FleetMaintenancePage  from '@/pages/fleet/FleetMaintenancePage';
 import FleetAlertsPage       from '@/pages/fleet/FleetAlertsPage';
 import FleetReportsPage      from '@/pages/fleet/FleetReportsPage';
+import VehicleDetailPage     from '@/pages/fleet/VehicleDetailPage';
 import '@/index.css';
 
 // ─── Guardia de autenticación ─────────────────────────────────────────────────
@@ -118,6 +119,9 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
             } />
             <Route path="fleet/vehicles" element={
               <PermissionGuard moduleKey="fleet"><FleetVehiclesPage /></PermissionGuard>
+            } />
+            <Route path="fleet/vehicles/:id" element={
+              <PermissionGuard moduleKey="fleet"><VehicleDetailPage /></PermissionGuard>
             } />
             <Route path="fleet/fuel" element={
               <PermissionGuard moduleKey="fleet"><FleetFuelPage /></PermissionGuard>

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Plus, Search, Pencil, Trash2, RefreshCw } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Plus, Search, Pencil, Trash2, RefreshCw, ExternalLink } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { api } from '@/services/api';
@@ -68,7 +69,8 @@ const btn = (active: boolean): React.CSSProperties => ({
 });
 
 export default function FleetVehiclesPage() {
-  const toast = useToast();
+  const toast    = useToast();
+  const navigate = useNavigate();
 
   const [vehicles, setVehicles]     = useState<Vehicle[]>([]);
   const [loading, setLoading]       = useState(true);
@@ -160,7 +162,7 @@ export default function FleetVehiclesPage() {
 
   const setF = (k: string, v: string) => setForm(p => ({ ...p, [k]: v }));
 
-  const TH = ['Código','Placa','Vehículo','Tipo','Combustible','Km Actual','Área','Conductor','Estado',''];
+  const TH = ['Código','Placa','Vehículo','Tipo','Combustible','Km Actual','Área','Conductor','Estado','Acciones'];
 
   return (
     <div style={{ minHeight: '100%', background: 'var(--sz-bg)', paddingBottom: 32 }}>
@@ -219,6 +221,7 @@ export default function FleetVehiclesPage() {
                         <td style={{ padding: '9px 12px' }}>{st && <Badge label={st.label} color={st.color} bg={st.bg} />}</td>
                         <td style={{ padding: '9px 12px' }}>
                           <div style={{ display: 'flex', gap: 4 }}>
+                            <button onClick={() => navigate(`/fleet/vehicles/${v.id}`)} title="Ver detalle" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--sz-accent)', padding: 4, display: 'flex' }}><ExternalLink size={13} /></button>
                             <button onClick={() => openEdit(v)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--sz-muted)', padding: 4, display: 'flex' }}><Pencil size={13} /></button>
                             <button onClick={() => setConfirmDel(v.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#c0392b', padding: 4, display: 'flex' }}><Trash2 size={13} /></button>
                           </div>
