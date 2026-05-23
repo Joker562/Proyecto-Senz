@@ -82,7 +82,7 @@ interface EfficiencyResponse {
 interface UpcomingItem {
   planId: string;
   planName: string;
-  serviceType: string | null;
+  serviceType?: string | null;
   vehicleId: string;
   vehicleCode: string;
   vehiclePlate: string;
@@ -92,9 +92,17 @@ interface UpcomingItem {
   urgency: 'OVERDUE' | 'CRITICAL' | 'WARNING';
   nextDue: string | null;
   daysUntilDue: number | null;
-  kmThreshold: number | null;
+  usageThreshold: number | null;
   kmRemaining: number | null;
-  hasOpenOT: boolean;
+  hasOpenWorkOrder: boolean;
+}
+
+interface UpcomingResponse {
+  total: number;
+  overdue: number;
+  critical: number;
+  warning: number;
+  items: UpcomingItem[];
 }
 
 // ── Constantes ────────────────────────────────────────────────────────────────
@@ -259,14 +267,14 @@ export default function FleetReportsPage() {
       api.get<EfficiencyResponse>(
         `/fleet/reports/efficiency?startDate=${encodeURIComponent(start)}&endDate=${encodeURIComponent(end)}`,
       ),
-      api.get<UpcomingItem[]>('/fleet/maintenance/upcoming'),
+      api.get<UpcomingResponse>('/fleet/maintenance/upcoming'),
     ])
       .then(([vRes, fRes, eRes, uRes]) => {
         if (cancelled) return;
         setVehicles(vRes.data   ?? []);
         setFuelSummary(fRes.data ?? null);
         setEfficiency(eRes.data  ?? null);
-        setUpcoming(uRes.data    ?? []);
+        setUpcoming(uRes.data?.items ?? []);
       })
       .catch(() => {
         if (!cancelled) toast.push('Error al cargar datos de reportes', 'error');
@@ -455,9 +463,9 @@ export default function FleetReportsPage() {
       URGENCY_MAP[u.urgency]?.label ?? u.urgency,
       u.nextDue ? new Date(u.nextDue).toLocaleDateString('es-MX') : '—',
       u.daysUntilDue ?? '—',
-      u.kmThreshold  ?? '—',
-      u.kmRemaining  ?? '—',
-      u.hasOpenOT ? 'Sí' : 'No',
+      u.usageThreshold ?? '—',
+      u.kmRemaining    ?? '—',
+      u.hasOpenWorkOrder ? 'Sí' : 'No',
     ]);
     downloadClientCSV(
       `mantenimiento_${year}-${String(month).padStart(2, '0')}.csv`,
@@ -1103,10 +1111,10 @@ export default function FleetReportsPage() {
                                 <td style={TD}>
                                   <span style={{
                                     padding: '2px 8px', borderRadius: 4, fontSize: 10, fontWeight: 700,
-                                    background: u.hasOpenOT ? '#e8f8f0' : '#fef3e7',
-                                    color:      u.hasOpenOT ? '#27ae60' : '#e67e22',
+                                    background: u.hasOpenWorkOrder ? '#e8f8f0' : '#fef3e7',
+                                    color:      u.hasOpenWorkOrder ? '#27ae60' : '#e67e22',
                                   }}>
-                                    {u.hasOpenOT ? 'Sí' : 'No'}
+                                    {u.hasOpenWorkOrder ? 'Sí' : 'No'}
                                   </span>
                                 </td>
                               </tr>
