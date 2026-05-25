@@ -1,10 +1,19 @@
 import axios from 'axios';
 
-// En producción, VITE_API_BASE_URL apunta al backend de Railway.
-// En desarrollo, la proxy de Vite resuelve /api → localhost:4000.
+// En desarrollo: Vite proxy resuelve /api → localhost:4000
+// En producción: usa la URL de Railway directamente
+const isLocalhost =
+  typeof window !== 'undefined' &&
+  (window.location.hostname === 'localhost' ||
+   window.location.hostname === '127.0.0.1');
+
+const RAILWAY_URL = 'https://proyecto-senz-production.up.railway.app';
+
 const BASE_URL = import.meta.env.VITE_API_BASE_URL
   ? `${import.meta.env.VITE_API_BASE_URL}/api`
-  : '/api';
+  : isLocalhost
+    ? '/api'
+    : `${RAILWAY_URL}/api`;
 
 export const api = axios.create({
   baseURL: BASE_URL,
