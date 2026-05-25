@@ -51,6 +51,43 @@ function wrapHtml(name: string, body: string): string {
 </html>`;
 }
 
+// ─── Envío via Brevo (HTTP API — sin SMTP) ────────────────────────────────────
+
+async function sendViaBrevo(
+  to: string,
+  subject: string,
+  html: string,
+  cfg: SmtpConfig | null,
+): Promise<void> {
+  const apiKey  = process.env.BREVO_API_KEY!;
+  const fromName = cfg?.fromName || 'Senz — Gestión Industrial';
+  const fromAddr = cfg?.from || cfg?.user || 'envgen562@gmail.com';
+
+  console.log(`[Email/Brevo] "${subject}" → ${to} (from: ${fromAddr})`);
+
+  const res = await fetch('https://api.brevo.com/v3/smtp/email', {
+    method: 'POST',
+    headers: {
+      'api-key': apiKey,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      sender:      { email: fromAddr, name: fromName },
+      to:          [{ email: to }],
+      subject,
+      htmlContent: html,
+    }),
+  });
+
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Brevo: ${res.status} ${err}`);
+  }
+
+  const data = await res.json() as { messageId?: string };
+  console.log(`[Email/Brevo] OK messageId=${data.messageId}`);
+}
+
 // ─── Envío via Resend (HTTP API — sin SMTP) ───────────────────────────────────
 
 async function sendViaResend(
@@ -63,7 +100,7 @@ async function sendViaResend(
   const resend  = new Resend(apiKey);
   const fromName = cfg?.fromName || 'Senz — Gestión Industrial';
 
-  // Resend requiere dominio verificado. gmail.com no se puede verificar,
+  // Resend requiere dominio verificado. Gmail no se puede verificar,
   // así que usamos el dominio de Resend hasta que el usuario verifique el suyo.
   const fromAddr = (cfg?.from && !cfg.from.toLowerCase().includes('@gmail.com'))
     ? cfg.from
@@ -125,6 +162,26 @@ async function sendViaSmtp(
   return {};
 }
 
+// ─── Selector de proveedor ────────────────────────────────────────────────────
+// Prioridad: Brevo → Resend → SMTP
+
+async function sendEmail(
+  to: string,
+  subject: string,
+  html: string,
+  cfg: SmtpConfig | null,
+): Promise<{ previewUrl?: string }> {
+  if (process.env.BREVO_API_KEY) {
+    await sendViaBrevo(to, subject, html, cfg);
+    return {};
+  }
+  if (process.env.RESEND_API_KEY) {
+    await sendViaResend(to, subject, html, cfg);
+    return {};
+  }
+  return sendViaSmtp(to, subject, html, cfg);
+}
+
 // ─── API pública ──────────────────────────────────────────────────────────────
 
 export async function sendNotificationEmail(
@@ -132,14 +189,7 @@ export async function sendNotificationEmail(
 ): Promise<{ previewUrl?: string }> {
   const cfg  = await getSmtpConfig();
   const html = wrapHtml(opts.name, opts.html);
-
-  // Resend tiene prioridad si la variable de entorno está configurada
-  if (process.env.RESEND_API_KEY) {
-    await sendViaResend(opts.to, opts.subject, html, cfg);
-    return {};
-  }
-
-  return sendViaSmtp(opts.to, opts.subject, html, cfg);
+  return sendEmail(opts.to, opts.subject, html, cfg);
 }
 
 export async function sendPartsRequestEmail(opts: PartsRequestOptions): Promise<{ previewUrl?: string }> {
@@ -188,9 +238,5 @@ export async function sendPartsRequestEmail(opts: PartsRequestOptions): Promise<
   </div>
 </body></html>`;
 
-  if (process.env.RESEND_API_KEY) {
-    await sendViaResend(opts.recipientEmail, `[PARTES] OT ${opts.workOrderCode} — ${opts.assetName}`, html, cfg);
-    return {};
-  }
-  return sendViaSmtp(opts.recipientEmail, `[PARTES] OT ${opts.workOrderCode} — ${opts.assetName}`, html, cfg);
+  return sendEmail(opts.recipientEmail, `[PARTES] OT ${opts.workOrderCode} — ${opts.assetName}`, html, cfg);
 }
