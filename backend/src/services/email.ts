@@ -50,15 +50,21 @@ async function createTransporter(): Promise<{ t: nodemailer.Transporter; preview
     }
   }
 
-  console.log(`[Email] SMTP: ${host}:${port} user=${user} secure=${secure}`);
+  const timeouts = { connectionTimeout: 15000, greetingTimeout: 10000, socketTimeout: 25000 };
+
+  // Gmail: usar el preset 'gmail' de nodemailer (puerto 465 SSL, más fiable en cloud)
+  if (host === 'smtp.gmail.com') {
+    console.log(`[Email] Gmail App Password — service preset (465/SSL) user=${user}`);
+    return {
+      t: nodemailer.createTransport({ service: 'gmail', auth: { user, pass }, ...timeouts }),
+      preview: false,
+      from,
+    };
+  }
+
+  console.log(`[Email] SMTP: ${host}:${port} secure=${secure} user=${user}`);
   return {
-    t: nodemailer.createTransport({
-      host, port, secure,
-      auth: { user, pass },
-      connectionTimeout: 10000,  // falla en 10 s si no conecta
-      greetingTimeout:   10000,  // falla si el servidor no saluda en 10 s
-      socketTimeout:     20000,  // falla si no hay respuesta en 20 s
-    }),
+    t: nodemailer.createTransport({ host, port, secure, auth: { user, pass }, ...timeouts }),
     preview: false,
     from,
   };
