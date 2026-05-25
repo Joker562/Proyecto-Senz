@@ -8,7 +8,8 @@ export type NotifType =
   | 'AUDIT_REMINDER'
   | 'CAPA_WARNING'
   | 'CAPA_OVERDUE'
-  | 'AUDIT_LOW_SCORE';
+  | 'AUDIT_LOW_SCORE'
+  | 'WORK_ORDER_ASSIGNED';
 
 export interface NotifPayload {
   type: NotifType;

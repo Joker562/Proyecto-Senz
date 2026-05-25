@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { prisma } from '../services/prisma';
 import { authenticate, authorize } from '../middleware/auth';
+import { sendNotification } from '../services/notifications';
 
 const VALID_STATUSES = ['PENDING', 'IN_PROGRESS', 'ON_HOLD', 'COMPLETED', 'CANCELLED'] as const;
 const VALID_PRIORITIES = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'] as const;
@@ -175,6 +176,31 @@ router.post('/', authorize('ADMIN', 'SUPERVISOR'), async (req: Request, res: Res
   });
 
   req.app.get('io')?.emit('workOrder:created', order);
+
+  if (order.assignedToId) {
+    const PRIORITY: Record<string, string> = { LOW: 'Baja', MEDIUM: 'Media', HIGH: 'Alta', CRITICAL: 'Crítica' };
+    const TYPE: Record<string, string> = { PREVENTIVE: 'Preventivo', CORRECTIVE: 'Correctivo', PREDICTIVE: 'Predictivo', INSPECTION: 'Inspección' };
+    const shortCode = order.code.slice(-8).toUpperCase();
+    sendNotification({
+      type: 'WORK_ORDER_ASSIGNED',
+      referenceId: order.id,
+      userId: order.assignedToId,
+      message: `Se te asignó la OT "${order.title}" — ${order.asset?.name ?? ''} · Prioridad ${PRIORITY[order.priority] ?? order.priority}`,
+      link: `/work-orders/${order.id}`,
+      emailSubject: `[Asignación] OT ${shortCode} — ${order.title}`,
+      emailHtml: `<p>Se te ha asignado una nueva orden de trabajo:</p>
+        <ul>
+          <li><strong>Código:</strong> ${shortCode}</li>
+          <li><strong>Título:</strong> ${order.title}</li>
+          <li><strong>Equipo:</strong> ${order.asset?.name ?? '—'} (${order.asset?.code ?? '—'})</li>
+          <li><strong>Área:</strong> ${order.asset?.area ?? '—'}</li>
+          <li><strong>Tipo:</strong> ${TYPE[order.type] ?? order.type}</li>
+          <li><strong>Prioridad:</strong> ${PRIORITY[order.priority] ?? order.priority}</li>
+          ${order.scheduledAt ? `<li><strong>Fecha programada:</strong> ${new Date(order.scheduledAt).toLocaleDateString('es-MX')}</li>` : ''}
+        </ul>`,
+    });
+  }
+
   res.status(201).json(order);
 });
 
@@ -214,6 +240,31 @@ router.patch('/:id/assign', authorize('ADMIN', 'SUPERVISOR'), async (req: Reques
     include: { asset: true, assignedTo: { select: { id: true, name: true } }, createdBy: { select: { id: true, name: true } } },
   });
   req.app.get('io')?.emit('workOrder:updated', updated);
+
+  if (assignedToId) {
+    const PRIORITY: Record<string, string> = { LOW: 'Baja', MEDIUM: 'Media', HIGH: 'Alta', CRITICAL: 'Crítica' };
+    const TYPE: Record<string, string> = { PREVENTIVE: 'Preventivo', CORRECTIVE: 'Correctivo', PREDICTIVE: 'Predictivo', INSPECTION: 'Inspección' };
+    const shortCode = updated.code.slice(-8).toUpperCase();
+    sendNotification({
+      type: 'WORK_ORDER_ASSIGNED',
+      referenceId: updated.id,
+      userId: assignedToId,
+      message: `Se te asignó la OT "${updated.title}" — ${updated.asset?.name ?? ''} · Prioridad ${PRIORITY[updated.priority] ?? updated.priority}`,
+      link: `/work-orders/${updated.id}`,
+      emailSubject: `[Asignación] OT ${shortCode} — ${updated.title}`,
+      emailHtml: `<p>Se te ha asignado una orden de trabajo:</p>
+        <ul>
+          <li><strong>Código:</strong> ${shortCode}</li>
+          <li><strong>Título:</strong> ${updated.title}</li>
+          <li><strong>Equipo:</strong> ${updated.asset?.name ?? '—'} (${updated.asset?.code ?? '—'})</li>
+          <li><strong>Área:</strong> ${updated.asset?.area ?? '—'}</li>
+          <li><strong>Tipo:</strong> ${TYPE[updated.type] ?? updated.type}</li>
+          <li><strong>Prioridad:</strong> ${PRIORITY[updated.priority] ?? updated.priority}</li>
+          ${updated.scheduledAt ? `<li><strong>Fecha programada:</strong> ${new Date(updated.scheduledAt).toLocaleDateString('es-MX')}</li>` : ''}
+        </ul>`,
+    });
+  }
+
   res.json(updated);
 });
 

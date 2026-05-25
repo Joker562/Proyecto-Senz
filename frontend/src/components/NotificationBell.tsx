@@ -23,12 +23,13 @@ interface Props {
 }
 
 const NOTIF_ICON: Record<string, { icon: string; color: string; bg: string }> = {
-  AUDIT_ASSIGNED:  { icon: '📋', color: BLUE,  bg: '#e8f4fd' },
-  CAPA_ASSIGNED:   { icon: '📌', color: ACCENT, bg: '#fef3e7' },
-  AUDIT_REMINDER:  { icon: '🔔', color: ACCENT, bg: '#fef3e7' },
-  CAPA_WARNING:    { icon: '⚡', color: ACCENT, bg: '#fef3e7' },
-  CAPA_OVERDUE:    { icon: '⚠️', color: RED,    bg: '#fde8e6' },
-  AUDIT_LOW_SCORE: { icon: '📉', color: RED,    bg: '#fde8e6' },
+  AUDIT_ASSIGNED:       { icon: '📋', color: BLUE,  bg: '#e8f4fd' },
+  CAPA_ASSIGNED:        { icon: '📌', color: ACCENT, bg: '#fef3e7' },
+  AUDIT_REMINDER:       { icon: '🔔', color: ACCENT, bg: '#fef3e7' },
+  CAPA_WARNING:         { icon: '⚡', color: ACCENT, bg: '#fef3e7' },
+  CAPA_OVERDUE:         { icon: '⚠️', color: RED,    bg: '#fde8e6' },
+  AUDIT_LOW_SCORE:      { icon: '📉', color: RED,    bg: '#fde8e6' },
+  WORK_ORDER_ASSIGNED:  { icon: '🔧', color: BLUE,  bg: '#e8f4fd' },
 };
 
 export default function NotificationBell({ iconColor = MUTED, btnBg = CARD }: Props) {
