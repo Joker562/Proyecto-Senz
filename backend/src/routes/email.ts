@@ -6,10 +6,14 @@ const router = Router();
 router.use(authenticate);
 
 // POST /api/email/send — envía un correo de notificación genérico
+// Si no se especifica `to`, usa el email del usuario autenticado (útil para prueba con Resend sin dominio verificado)
 router.post('/send', async (req, res) => {
-  const { to, name, subject, html } = req.body as {
+  const user = (req as any).user;
+  const { to: toBody, name, subject, html } = req.body as {
     to?: string; name?: string; subject?: string; html?: string;
   };
+
+  const to = toBody || user?.email;
 
   if (!to || !name || !subject || !html) {
     return res.status(400).json({ error: 'Faltan campos: to, name, subject, html' });

@@ -411,27 +411,23 @@ function NotificationsTab({ push }: { push: (m:string,t:'success'|'error')=>void
   };
 
   const handleTest = async () => {
-    if (!cfg.user.trim()) {
-      push('Guarda primero la configuración SMTP', 'error');
-      return;
-    }
     setTesting(true);
     setTestResult(null);
     try {
+      // No se pasa `to` — el backend usa el email del usuario autenticado (necesario con Resend sin dominio verificado)
       const { data } = await api.post<{ ok: boolean; previewUrl?: string }>('/email/send', {
-        to:      cfg.user,
         name:    'Administrador',
         subject: '[Prueba] Correo de prueba — Senz',
-        html:    '<p>✅ Este mensaje confirma que la configuración SMTP funciona correctamente.</p><p style="color:#888;font-size:12px">Enviado desde la pantalla de Configuración → Notificaciones.</p>',
+        html:    '<p>✅ Este mensaje confirma que la configuración de correo funciona correctamente.</p><p style="color:#888;font-size:12px">Enviado desde la pantalla de Configuración → Notificaciones.</p>',
       });
       if (data.previewUrl) {
-        setTestResult({ ok: false, msg: '⚠️ SMTP no configurado — se usó Ethereal (correo de prueba). Guarda primero la contraseña correcta.', previewUrl: data.previewUrl });
+        setTestResult({ ok: false, msg: '⚠️ SMTP no configurado — se usó Ethereal (correo de prueba). Revisa la configuración.', previewUrl: data.previewUrl });
       } else {
-        setTestResult({ ok: true, msg: `✅ Correo enviado a ${cfg.user}. Revisa tu bandeja de entrada.` });
+        setTestResult({ ok: true, msg: '✅ Correo enviado. Revisa tu bandeja de entrada.' });
       }
     } catch (err: unknown) {
       const detail = (err as { response?: { data?: { detail?: string; error?: string } } })?.response?.data;
-      setTestResult({ ok: false, msg: `❌ Error: ${detail?.detail ?? detail?.error ?? 'Fallo al conectar con SMTP'}` });
+      setTestResult({ ok: false, msg: `❌ Error: ${detail?.detail ?? detail?.error ?? 'Fallo al enviar correo'}` });
     } finally {
       setTesting(false);
     }
