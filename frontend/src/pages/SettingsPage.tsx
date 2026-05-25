@@ -388,9 +388,12 @@ function NotificationsTab({ push }: { push: (m:string,t:'success'|'error')=>void
     }
     setSaving(true);
     try {
-      const { data } = await api.put<SmtpConfig>('/settings/smtp-config', cfg);
+      // Si no se editó la contraseña enviar PASS_MASK para que el backend conserve la existente
+      const payload = { ...cfg, pass: passEditing ? cfg.pass : PASS_MASK };
+      const { data } = await api.put<SmtpConfig>('/settings/smtp-config', payload);
       setCfg({ ...data, pass: data.pass ? PASS_MASK : '' });
       setPassEditing(false);
+      setShowPass(false);
       push('Configuración SMTP guardada', 'success');
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
@@ -440,10 +443,10 @@ function NotificationsTab({ push }: { push: (m:string,t:'success'|'error')=>void
           <div>
             <label style={labelStyle}>
               Contraseña / Token de App
-              {!passEditing && cfg.pass && (
-                <button type="button" onClick={() => { setCfg((p) => ({ ...p, pass: '' })); setPassEditing(true); }}
+              {!passEditing && (
+                <button type="button" onClick={() => { setCfg((p) => ({ ...p, pass: '' })); setPassEditing(true); setShowPass(false); }}
                   style={{ marginLeft: 8, fontSize: 10, color: ACCENT, background:'none', border:'none', cursor:'pointer', fontFamily:'IBM Plex Sans,sans-serif' }}>
-                  Cambiar
+                  {cfg.pass ? 'Cambiar' : 'Configurar'}
                 </button>
               )}
             </label>
@@ -451,16 +454,17 @@ function NotificationsTab({ push }: { push: (m:string,t:'success'|'error')=>void
               <input
                 type={showPass ? 'text' : 'password'}
                 value={cfg.pass}
-                readOnly={!passEditing && cfg.pass === PASS_MASK}
-                onChange={(e) => handleChange('pass', e.target.value)}
-                onFocus={() => { if (!passEditing && cfg.pass === PASS_MASK) { setCfg((p) => ({...p, pass:''})); setPassEditing(true); } }}
-                placeholder={passEditing ? 'Nueva contraseña o token' : 'No configurada'}
-                style={{ ...inputStyle, paddingRight: 36, fontFamily: 'IBM Plex Mono, monospace', fontSize: 12 }}
+                readOnly={!passEditing}
+                onChange={(e) => { if (passEditing) handleChange('pass', e.target.value); }}
+                placeholder={passEditing ? 'Nueva contraseña o token de app' : (cfg.pass ? 'Contraseña guardada' : 'No configurada')}
+                style={{ ...inputStyle, paddingRight: passEditing ? 36 : 12, fontFamily: 'IBM Plex Mono, monospace', fontSize: 12, cursor: !passEditing ? 'default' : 'text' }}
               />
-              <button type="button" onClick={() => setShowPass((v) => !v)}
-                style={{ position:'absolute', right:8, top:'50%', transform:'translateY(-50%)', background:'none', border:'none', cursor:'pointer', color:MUTED, padding:2 }}>
-                {showPass ? <EyeOff size={14} /> : <Eye size={14} />}
-              </button>
+              {passEditing && (
+                <button type="button" onClick={() => setShowPass((v) => !v)}
+                  style={{ position:'absolute', right:8, top:'50%', transform:'translateY(-50%)', background:'none', border:'none', cursor:'pointer', color:MUTED, padding:2 }}>
+                  {showPass ? <EyeOff size={14} /> : <Eye size={14} />}
+                </button>
+              )}
             </div>
           </div>
         </div>
