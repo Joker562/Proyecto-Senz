@@ -30,25 +30,34 @@ async function createTransporter(): Promise<{ t: nodemailer.Transporter; preview
   const from     = `"${fromName}" <${fromAddr}>`;
 
   if (!host || !user || !pass) {
-    console.warn('[Email] SMTP no configurado — usando Ethereal (correo de prueba). Configura SMTP_HOST, SMTP_USER y SMTP_PASS.');
-    const testAccount = await nodemailer.createTestAccount();
-    return {
-      t: nodemailer.createTransport({
-        host: 'smtp.ethereal.email', port: 587, secure: false,
-        auth: { user: testAccount.user, pass: testAccount.pass },
-      }),
-      preview: true,
-      from,
-    };
+    console.warn('[Email] SMTP no configurado — usando Ethereal.');
+    try {
+      const testAccount = await Promise.race([
+        nodemailer.createTestAccount(),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Ethereal timeout')), 8000)),
+      ]);
+      return {
+        t: nodemailer.createTransport({
+          host: 'smtp.ethereal.email', port: 587, secure: false,
+          auth: { user: testAccount.user, pass: testAccount.pass },
+          connectionTimeout: 10000, socketTimeout: 15000,
+        }),
+        preview: true,
+        from,
+      };
+    } catch (e) {
+      throw new Error('SMTP no configurado y no se pudo crear cuenta Ethereal. Configura las credenciales SMTP en Configuración → Notificaciones.');
+    }
   }
 
-  console.log(`[Email] Usando SMTP real: ${host}:${port} user=${user} secure=${secure}`);
+  console.log(`[Email] SMTP: ${host}:${port} user=${user} secure=${secure}`);
   return {
     t: nodemailer.createTransport({
       host, port, secure,
       auth: { user, pass },
-      // Forzar STARTTLS en puerto 587 (necesario para Gmail y la mayoría de proveedores)
-      requireTLS: !secure && port === 587,
+      connectionTimeout: 10000,  // falla en 10 s si no conecta
+      greetingTimeout:   10000,  // falla si el servidor no saluda en 10 s
+      socketTimeout:     20000,  // falla si no hay respuesta en 20 s
     }),
     preview: false,
     from,
