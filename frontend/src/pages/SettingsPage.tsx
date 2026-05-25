@@ -363,16 +363,20 @@ const SMTP_EMPTY: SmtpConfig = { host:'', port:587, user:'', pass:'', from:'', f
 const PASS_MASK = '••••••••';
 
 function NotificationsTab({ push }: { push: (m:string,t:'success'|'error')=>void }) {
-  const [cfg,       setCfg]      = useState<SmtpConfig>(SMTP_EMPTY);
-  const [loading,   setLoading]  = useState(true);
-  const [saving,    setSaving]   = useState(false);
-  const [showPass,  setShowPass] = useState(false);
+  const [cfg,         setCfg]        = useState<SmtpConfig>(SMTP_EMPTY);
+  const [loading,     setLoading]    = useState(true);
+  const [saving,      setSaving]     = useState(false);
+  const [showPass,    setShowPass]   = useState(false);
   const [passEditing, setPassEditing] = useState(false);
+  const [hasSavedPass, setHasSavedPass] = useState(false); // contraseña ya configurada en DB
 
   useEffect(() => {
     api.get<SmtpConfig>('/settings/smtp-config')
-      .then(({ data }) => setCfg(data))
-      .catch(() => setCfg(SMTP_EMPTY))
+      .then(({ data }) => {
+        setHasSavedPass(!!data.pass); // backend devuelve PASS_MASK si hay contraseña guardada
+        setCfg({ ...data, pass: '' }); // nunca poner la máscara como valor del input
+      })
+      .catch(() => { setCfg(SMTP_EMPTY); setHasSavedPass(false); })
       .finally(() => setLoading(false));
   }, []);
 
@@ -391,7 +395,8 @@ function NotificationsTab({ push }: { push: (m:string,t:'success'|'error')=>void
       // Si no se editó la contraseña enviar PASS_MASK para que el backend conserve la existente
       const payload = { ...cfg, pass: passEditing ? cfg.pass : PASS_MASK };
       const { data } = await api.put<SmtpConfig>('/settings/smtp-config', payload);
-      setCfg({ ...data, pass: data.pass ? PASS_MASK : '' });
+      setHasSavedPass(!!data.pass);
+      setCfg({ ...data, pass: '' }); // nunca poner la máscara como valor del input
       setPassEditing(false);
       setShowPass(false);
       push('Configuración SMTP guardada', 'success');
@@ -444,9 +449,10 @@ function NotificationsTab({ push }: { push: (m:string,t:'success'|'error')=>void
             <label style={labelStyle}>
               Contraseña / Token de App
               {!passEditing && (
-                <button type="button" onClick={() => { setCfg((p) => ({ ...p, pass: '' })); setPassEditing(true); setShowPass(false); }}
+                <button type="button"
+                  onClick={() => { setCfg((p) => ({ ...p, pass: '' })); setPassEditing(true); setShowPass(false); }}
                   style={{ marginLeft: 8, fontSize: 10, color: ACCENT, background:'none', border:'none', cursor:'pointer', fontFamily:'IBM Plex Sans,sans-serif' }}>
-                  {cfg.pass ? 'Cambiar' : 'Configurar'}
+                  {hasSavedPass ? 'Cambiar' : 'Configurar'}
                 </button>
               )}
             </label>
@@ -456,8 +462,20 @@ function NotificationsTab({ push }: { push: (m:string,t:'success'|'error')=>void
                 value={cfg.pass}
                 readOnly={!passEditing}
                 onChange={(e) => { if (passEditing) handleChange('pass', e.target.value); }}
-                placeholder={passEditing ? 'Nueva contraseña o token de app' : (cfg.pass ? 'Contraseña guardada' : 'No configurada')}
-                style={{ ...inputStyle, paddingRight: passEditing ? 36 : 12, fontFamily: 'IBM Plex Mono, monospace', fontSize: 12, cursor: !passEditing ? 'default' : 'text' }}
+                placeholder={
+                  passEditing
+                    ? 'Pega aquí el token de app (sin espacios)'
+                    : hasSavedPass
+                      ? '● Contraseña configurada'
+                      : 'Sin contraseña — haz clic en Configurar'
+                }
+                style={{
+                  ...inputStyle,
+                  paddingRight: passEditing ? 36 : 12,
+                  fontFamily: 'IBM Plex Mono, monospace', fontSize: 12,
+                  cursor: !passEditing ? 'default' : 'text',
+                  color: !passEditing && hasSavedPass ? '#27ae60' : TEXT,
+                }}
               />
               {passEditing && (
                 <button type="button" onClick={() => setShowPass((v) => !v)}
