@@ -366,9 +366,11 @@ function NotificationsTab({ push }: { push: (m:string,t:'success'|'error')=>void
   const [cfg,         setCfg]        = useState<SmtpConfig>(SMTP_EMPTY);
   const [loading,     setLoading]    = useState(true);
   const [saving,      setSaving]     = useState(false);
+  const [testing,     setTesting]    = useState(false);
+  const [testResult,  setTestResult] = useState<{ ok: boolean; msg: string; previewUrl?: string } | null>(null);
   const [showPass,    setShowPass]   = useState(false);
   const [passEditing, setPassEditing] = useState(false);
-  const [hasSavedPass, setHasSavedPass] = useState(false); // contraseña ya configurada en DB
+  const [hasSavedPass, setHasSavedPass] = useState(false);
 
   useEffect(() => {
     api.get<SmtpConfig>('/settings/smtp-config')
@@ -405,6 +407,33 @@ function NotificationsTab({ push }: { push: (m:string,t:'success'|'error')=>void
       push(msg ?? 'Error al guardar configuración', 'error');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleTest = async () => {
+    if (!cfg.user.trim()) {
+      push('Guarda primero la configuración SMTP', 'error');
+      return;
+    }
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const { data } = await api.post<{ ok: boolean; previewUrl?: string }>('/email/send', {
+        to:      cfg.user,
+        name:    'Administrador',
+        subject: '[Prueba] Correo de prueba — Senz',
+        html:    '<p>✅ Este mensaje confirma que la configuración SMTP funciona correctamente.</p><p style="color:#888;font-size:12px">Enviado desde la pantalla de Configuración → Notificaciones.</p>',
+      });
+      if (data.previewUrl) {
+        setTestResult({ ok: false, msg: '⚠️ SMTP no configurado — se usó Ethereal (correo de prueba). Guarda primero la contraseña correcta.', previewUrl: data.previewUrl });
+      } else {
+        setTestResult({ ok: true, msg: `✅ Correo enviado a ${cfg.user}. Revisa tu bandeja de entrada.` });
+      }
+    } catch (err: unknown) {
+      const detail = (err as { response?: { data?: { detail?: string; error?: string } } })?.response?.data;
+      setTestResult({ ok: false, msg: `❌ Error: ${detail?.detail ?? detail?.error ?? 'Fallo al conectar con SMTP'}` });
+    } finally {
+      setTesting(false);
     }
   };
 
@@ -521,6 +550,52 @@ function NotificationsTab({ push }: { push: (m:string,t:'success'|'error')=>void
           </button>
         </div>
       </form>
+
+      {/* ── Enviar correo de prueba ── */}
+      <div style={{ marginTop: 24, borderTop: `1px solid ${BORDER}`, paddingTop: 18 }}>
+        <p style={{ fontSize: 11, fontWeight: 700, color: MUTED, textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 10 }}>
+          Verificar configuración
+        </p>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            onClick={handleTest}
+            disabled={testing || !hasSavedPass}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              padding: '7px 16px', fontSize: 12, fontWeight: 600,
+              background: testing || !hasSavedPass ? '#ccc' : '#2980b9',
+              color: '#fff', border: 'none', borderRadius: 3,
+              cursor: testing || !hasSavedPass ? 'not-allowed' : 'pointer',
+              fontFamily: 'IBM Plex Sans, sans-serif',
+            }}
+          >
+            {testing ? <><Loader2 size={12} className="animate-spin" /> Enviando…</> : <><Mail size={12} /> Enviar correo de prueba</>}
+          </button>
+          {!hasSavedPass && (
+            <span style={{ fontSize: 11, color: MUTED }}>Guarda la configuración primero para poder probar.</span>
+          )}
+        </div>
+
+        {testResult && (
+          <div style={{
+            marginTop: 12, padding: '10px 14px', borderRadius: 4, fontSize: 12,
+            background: testResult.ok ? '#e9f7ef' : '#fdecea',
+            border: `1px solid ${testResult.ok ? '#27ae60' : '#e74c3c'}`,
+            color: testResult.ok ? '#1e7e3a' : '#c0392b',
+          }}>
+            <div>{testResult.msg}</div>
+            {testResult.previewUrl && (
+              <div style={{ marginTop: 6 }}>
+                <a href={testResult.previewUrl} target="_blank" rel="noopener noreferrer"
+                  style={{ color: '#2980b9', fontSize: 11 }}>
+                  Ver correo de prueba en Ethereal →
+                </a>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
 
       {/* Proveedores comunes */}
       <div style={{ marginTop: 28, borderTop: `1px solid ${BORDER}`, paddingTop: 16 }}>

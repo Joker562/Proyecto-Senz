@@ -30,6 +30,7 @@ async function createTransporter(): Promise<{ t: nodemailer.Transporter; preview
   const from     = `"${fromName}" <${fromAddr}>`;
 
   if (!host || !user || !pass) {
+    console.warn('[Email] SMTP no configurado — usando Ethereal (correo de prueba). Configura SMTP_HOST, SMTP_USER y SMTP_PASS.');
     const testAccount = await nodemailer.createTestAccount();
     return {
       t: nodemailer.createTransport({
@@ -41,8 +42,14 @@ async function createTransporter(): Promise<{ t: nodemailer.Transporter; preview
     };
   }
 
+  console.log(`[Email] Usando SMTP real: ${host}:${port} user=${user} secure=${secure}`);
   return {
-    t: nodemailer.createTransport({ host, port, secure, auth: { user, pass } }),
+    t: nodemailer.createTransport({
+      host, port, secure,
+      auth: { user, pass },
+      // Forzar STARTTLS en puerto 587 (necesario para Gmail y la mayoría de proveedores)
+      requireTLS: !secure && port === 587,
+    }),
     preview: false,
     from,
   };
@@ -56,6 +63,7 @@ export interface NotificationEmailOptions {
 export async function sendNotificationEmail(opts: NotificationEmailOptions): Promise<{ previewUrl?: string }> {
   const { t, preview, from } = await createTransporter();
 
+  console.log(`[Email] Enviando "${opts.subject}" → ${opts.to}`);
   const info = await t.sendMail({
     from,
     to:      opts.to,
@@ -80,9 +88,10 @@ export async function sendNotificationEmail(opts: NotificationEmailOptions): Pro
 
   if (preview) {
     const url = nodemailer.getTestMessageUrl(info);
-    console.log('[Email] Notificación (Ethereal):', url);
+    console.log('[Email] Ethereal preview URL:', url);
     return { previewUrl: url || undefined };
   }
+  console.log(`[Email] Enviado OK → messageId=${info.messageId}`);
   return {};
 }
 
