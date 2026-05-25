@@ -66,7 +66,7 @@ export default function LoginPage() {
           />
           <div style={{ color: '#fff', fontSize: 30, fontWeight: 700, letterSpacing: '.5px', marginBottom: 6 }}>senz</div>
           <div style={{ color: 'rgba(255,255,255,.45)', fontSize: 13, letterSpacing: '.5px', marginBottom: 48, textTransform: 'uppercase' }}>
-            Sistema de Mantenimiento
+            Gestión Empresarial
           </div>
 
           <div style={{ textAlign: 'left', display: 'flex', flexDirection: 'column', gap: 14 }}>

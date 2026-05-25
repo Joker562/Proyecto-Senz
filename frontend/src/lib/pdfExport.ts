@@ -78,7 +78,7 @@ export function exportAuditPDF(audit: Audit): void {
 
   doc.setFontSize(9);
   doc.setFont('helvetica', 'normal');
-  doc.text('Sistema de Gestión de Mantenimiento Industrial', ML, 20);
+  doc.text('Sistema de Gestión Empresarial — Senz', ML, 20);
 
   // Código en esquina derecha
   doc.setFontSize(20);
