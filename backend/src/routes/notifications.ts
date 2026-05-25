@@ -21,6 +21,20 @@ router.get('/', async (req, res) => {
   }
 });
 
+// PATCH /api/notifications/read-all — marcar todas como leídas  (debe ir antes de /:id/read)
+router.patch('/read-all', async (req, res) => {
+  try {
+    const userId = (req as any).user.userId;
+    await prisma.notification.updateMany({
+      where: { userId, read: false },
+      data: { read: true },
+    });
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: 'Error al marcar notificaciones' });
+  }
+});
+
 // PATCH /api/notifications/:id/read — marcar una como leída
 router.patch('/:id/read', async (req, res) => {
   try {
@@ -32,20 +46,6 @@ router.patch('/:id/read', async (req, res) => {
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: 'Error al actualizar notificación' });
-  }
-});
-
-// PATCH /api/notifications/read-all — marcar todas como leídas
-router.patch('/read-all', async (req, res) => {
-  try {
-    const userId = (req as any).user.userId;
-    await prisma.notification.updateMany({
-      where: { userId, read: false },
-      data: { read: true },
-    });
-    res.json({ ok: true });
-  } catch (e) {
-    res.status(500).json({ error: 'Error al marcar notificaciones' });
   }
 });
 

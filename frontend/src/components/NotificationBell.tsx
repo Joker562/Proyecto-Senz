@@ -116,6 +116,7 @@ export default function NotificationBell({ iconColor = MUTED, btnBg = CARD }: Pr
       const rect  = btnRef.current.getBoundingClientRect();
       const dropH = Math.min(count * 76 + 52, 420);
       setDropPos({ left: rect.right + 12, top: Math.max(8, rect.bottom - dropH + 36) });
+      loadAppNotifs(); // recargar notificaciones cada vez que se abre
     }
     setOpen((v) => !v);
   };
