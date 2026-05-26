@@ -2,8 +2,7 @@ import { useNavigate } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import {
   Wrench, BarChart3, Car, ClipboardCheck,
-  AlertTriangle, ChevronRight, CheckCircle2,
-  Activity,
+  ChevronRight, CheckCircle2, Activity,
 } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { ProgressBar } from '@/components/ui/ProgressBar';
