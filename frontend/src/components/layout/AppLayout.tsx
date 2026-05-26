@@ -31,7 +31,7 @@ interface NavItemDef {
 
 const MODULE_TABS: Array<{ id: ModuleId; label: string; icon: React.ElementType; defaultPath: string; permKey?: PermKey }> = [
   { id: 'home',        label: 'Panel',     icon: Home,           defaultPath: '/dashboard'    },
-  { id: 'maintenance', label: 'Mtto',      icon: Wrench,         defaultPath: '/work-orders'  },
+  { id: 'maintenance', label: 'Mtto',      icon: Wrench,         defaultPath: '/mtto-dashboard' },
   { id: 'fleet',       label: 'Flota',     icon: Car,            defaultPath: '/fleet',       permKey: 'fleet'  },
   { id: 'oee',         label: 'OEE',       icon: BarChart3,      defaultPath: '/oee',         permKey: 'oee'    },
   { id: 'audits',      label: 'Auditoría', icon: ClipboardCheck, defaultPath: '/audits',      permKey: 'audits' },
@@ -43,7 +43,7 @@ const NAV_BY_MODULE: Record<ModuleId, NavItemDef[]> = {
     { to: '/dashboard', icon: LayoutDashboard, label: 'Panel', fullLabel: 'Centro de Control' },
   ],
   maintenance: [
-    { to: '/dashboard',   icon: LayoutDashboard, label: 'Inicio',     fullLabel: 'Inicio',             module: 'dashboard' },
+    { to: '/mtto-dashboard', icon: LayoutDashboard, label: 'Inicio',  fullLabel: 'Dashboard Mtto',     module: 'dashboard' },
     { to: '/work-orders', icon: ClipboardList,   label: 'Órdenes',    fullLabel: 'Órdenes de Trabajo', module: 'workOrders', badge: true },
     { to: '/assets',      icon: Factory,         label: 'Equipos',    fullLabel: 'Equipos',            module: 'assets' },
     { to: '/maintenance', icon: Calendar,        label: 'Mtto',       fullLabel: 'Mantenimiento',      module: 'maintenance' },
@@ -79,10 +79,11 @@ const NAV_BY_MODULE: Record<ModuleId, NavItemDef[]> = {
 };
 
 function getActiveModule(pathname: string): ModuleId {
-  if (pathname === '/dashboard')       return 'home';
-  if (pathname.startsWith('/fleet'))   return 'fleet';
-  if (pathname.startsWith('/oee'))     return 'oee';
-  if (pathname.startsWith('/audits'))  return 'audits';
+  if (pathname === '/dashboard')            return 'home';
+  if (pathname === '/mtto-dashboard')       return 'maintenance';
+  if (pathname.startsWith('/fleet'))        return 'fleet';
+  if (pathname.startsWith('/oee'))          return 'oee';
+  if (pathname.startsWith('/audits'))       return 'audits';
   if (pathname === '/users' || pathname === '/settings') return 'admin';
   return 'maintenance';
 }

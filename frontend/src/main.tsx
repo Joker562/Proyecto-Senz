@@ -26,6 +26,7 @@ import OEEDashboardPage   from '@/pages/OEEDashboardPage';
 import OEERecordsPage     from '@/pages/oee/OEERecordsPage';
 import OEEDowntimePage    from '@/pages/oee/OEEDowntimePage';
 import OEEReportsPage     from '@/pages/oee/OEEReportsPage';
+import MaintenanceDashboardPage from '@/pages/MaintenanceDashboardPage';
 import FleetDashboardPage    from '@/pages/fleet/FleetDashboardPage';
 import FleetVehiclesPage     from '@/pages/fleet/FleetVehiclesPage';
 import FleetFuelPage         from '@/pages/fleet/FleetFuelPage';
@@ -70,6 +71,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
             <Route index element={<Navigate to="/dashboard" replace />} />
 
             {/* ── Mantenimiento ─────────────────────────────────────────── */}
+            <Route path="mtto-dashboard" element={<MaintenanceDashboardPage />} />
             <Route path="dashboard"   element={<DashboardPage />} />
             <Route path="work-orders" element={<WorkOrdersPage />} />
             <Route path="work-orders/:id" element={<WorkOrderDetailPage />} />
