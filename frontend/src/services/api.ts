@@ -108,6 +108,19 @@ export interface OEETrendPoint {
   goodCount:    number;
 }
 
+export interface AssetOEESummary {
+  assetId:      string;
+  id:           string;
+  code:         string;
+  name:         string;
+  area:         string;
+  availability: number;
+  performance:  number;
+  quality:      number;
+  oee:          number;
+  recordCount:  number;
+}
+
 export interface Paginated<T> {
   data: T[]; total: number; page: number; totalPages: number;
 }
@@ -153,6 +166,11 @@ export const oeeApi = {
     startDate?: string; endDate?: string; shift?: string;
     area?: string; assetId?: string; groupBy?: 'day' | 'week';
   }) => api.get<OEETrendPoint[]>('/oee/summary/trend', { params }).then(r => r.data),
+
+  getAssetsRanking: (params?: {
+    startDate?: string; endDate?: string; shift?: string;
+    limit?: number; order?: 'asc' | 'desc';
+  }) => api.get<AssetOEESummary[]>('/oee/summary/assets', { params }).then(r => r.data),
 
   // Downtime CRUD
   getDowntimeEvents: (params?: {

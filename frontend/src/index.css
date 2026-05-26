@@ -55,6 +55,17 @@
 /* ── Mono utility ───────────────────────────────────────────────── */
 .font-mono-sz { font-family: 'IBM Plex Mono', monospace; }
 
+/* ── Skeleton loader ─────────────────────────────────────────────── */
+@keyframes sz-pulse {
+  0%, 100% { opacity: 1;   }
+  50%       { opacity: .42; }
+}
+.sz-skeleton {
+  background: #e4e4e4;
+  border-radius: 4px;
+  animation: sz-pulse 1.5s ease-in-out infinite;
+}
+
 /* ── Senz scrollbar ─────────────────────────────────────────────── */
 ::-webkit-scrollbar         { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track   { background: transparent; }

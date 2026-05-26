@@ -283,6 +283,56 @@ router.get('/summary/trend', async (req: Request, res: Response) => {
   }
 });
 
+// ─── GET /summary/assets ─────────────────────────────────────────────────────
+// Ranking de todos los activos con OEE ponderado. Útil para "Top N peores".
+// Query: startDate, endDate, shift, limit (default 10), order (asc|desc)
+
+router.get('/summary/assets', async (req: Request, res: Response) => {
+  try {
+    const { startDate, endDate, shift, limit = '10', order = 'asc' } = req.query;
+
+    const where: Record<string, unknown> = {};
+    if (shift) where.shift = shift as string;
+    const dateRange = buildDateRange(startDate as string, endDate as string);
+    if (dateRange) where.date = dateRange;
+
+    const records = await prisma.oEERecord.findMany({
+      where,
+      select: {
+        assetId:      true,
+        plannedTime:  true,
+        availability: true, performance: true, quality: true, oee: true,
+        totalCount:   true, goodCount: true,
+        asset: { select: { id: true, code: true, name: true, area: true } },
+      },
+    });
+
+    // Agrupar por activo
+    const assetMap = new Map<string, {
+      asset: { id: string; code: string; name: string; area: string };
+      recs:  typeof records;
+    }>();
+    for (const r of records) {
+      if (!assetMap.has(r.assetId)) assetMap.set(r.assetId, { asset: r.asset, recs: [] });
+      assetMap.get(r.assetId)!.recs.push(r);
+    }
+
+    const result = Array.from(assetMap.entries()).map(([assetId, { asset, recs }]) => ({
+      assetId,
+      ...asset,
+      ...weightedOEESummary(recs),
+    }));
+
+    const dir = order === 'desc' ? -1 : 1;
+    result.sort((a, b) => dir * ((a.oee ?? 0) - (b.oee ?? 0)));
+
+    res.json(result.slice(0, Number(limit)));
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Error al calcular ranking OEE por activo' });
+  }
+});
+
 // ─── GET /summary/asset/:assetId ─────────────────────────────────────────────
 
 router.get('/summary/asset/:assetId', async (req: Request, res: Response) => {

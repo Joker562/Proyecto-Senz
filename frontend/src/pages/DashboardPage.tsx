@@ -1,12 +1,15 @@
 import { useNavigate } from 'react-router-dom';
 import { useState, useEffect } from 'react';
-import { AlertTriangle, ClipboardCheck, TrendingUp } from 'lucide-react';
+import {
+  AlertTriangle, ClipboardCheck, TrendingUp, TrendingDown,
+  Activity, CheckCircle2, Gauge,
+} from 'lucide-react';
 import { Card, CardHeader } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { SparkLine } from '@/components/ui/SparkLine';
 import { ProgressBar } from '@/components/ui/ProgressBar';
 import { LineChartSVG } from '@/components/ui/LineChartSVG';
-import { api } from '@/services/api';
+import { api, oeeApi, OEESummary, OEETrendPoint, DowntimeEvent, AssetOEESummary } from '@/services/api';
 import {
   mockStats, mockWorkOrders, mockAuditTrend,
   STATUS_MAP, PRI_MAP,
@@ -42,16 +45,84 @@ interface AuditDashboard {
 interface UpcomingAudit { id: string; code: string; title: string; area: string; scheduledAt: string; auditor: { name: string } }
 interface RecurrentItem { description: string; area: string; total: number; fails: number; failRate: number }
 
+// ─── OEE helpers ─────────────────────────────────────────────────────────────
+
+function oeeColor(v: number): string {
+  return v >= 85 ? '#27ae60' : v >= 65 ? '#e67e22' : '#c0392b';
+}
+
+const DT_CATEGORY: Record<string, { label: string; color: string; bg: string }> = {
+  PLANNED:    { label: 'Planificada',    color: '#2980b9', bg: '#e8f4fd' },
+  UNPLANNED:  { label: 'No planificada', color: '#c0392b', bg: '#fde8e6' },
+  SETUP:      { label: 'Preparación',   color: '#e67e22', bg: '#fff3ec' },
+  MINOR_STOP: { label: 'Micro-paro',    color: '#8b5cf6', bg: '#f3f0ff' },
+};
+
+// ─── Sub-components ───────────────────────────────────────────────────────────
+
+/** Contador de tiempo transcurrido desde startTime, actualiza cada 60 s */
+function ElapsedTimer({ startTime }: { startTime: string }) {
+  const [label, setLabel] = useState('');
+  useEffect(() => {
+    function tick() {
+      const mins = Math.floor((Date.now() - new Date(startTime).getTime()) / 60000);
+      if (mins < 1)   setLabel('<1 min');
+      else if (mins < 60) setLabel(`${mins} min`);
+      else {
+        const h = Math.floor(mins / 60);
+        const m = mins % 60;
+        setLabel(m > 0 ? `${h}h ${m}m` : `${h}h`);
+      }
+    }
+    tick();
+    const id = setInterval(tick, 60000);
+    return () => clearInterval(id);
+  }, [startTime]);
+  return <span>{label}</span>;
+}
+
+/** Anillo SVG tipo donut para el valor OEE */
+function DonutOEE({ value, size = 80 }: { value: number; size?: number }) {
+  const color = oeeColor(value);
+  const r     = (size - 10) / 2;
+  const circ  = 2 * Math.PI * r;
+  const dash  = Math.max(0, Math.min(1, value / 100)) * circ;
+  const cx    = size / 2;
+  const cy    = size / 2;
+  return (
+    <svg width={size} height={size}>
+      <circle cx={cx} cy={cy} r={r} fill="none" stroke="#e8e8e8" strokeWidth={9} />
+      <circle
+        cx={cx} cy={cy} r={r} fill="none" stroke={color} strokeWidth={9}
+        strokeDasharray={`${dash} ${circ - dash}`}
+        strokeLinecap="round"
+        transform={`rotate(-90 ${cx} ${cy})`}
+      />
+    </svg>
+  );
+}
+
+// ─── Page ────────────────────────────────────────────────────────────────────
+
 export default function DashboardPage() {
   const navigate = useNavigate();
   const { pending, inProgress, completed, overdue } = mockStats;
   const byArea = getByArea();
   const maxArea = Math.max(...Object.values(byArea), 1);
 
-  const [auditDash, setAuditDash]       = useState<AuditDashboard | null>(null);
+  // ── Audit state ──
+  const [auditDash, setAuditDash]         = useState<AuditDashboard | null>(null);
   const [upcomingAudits, setUpcomingAudits] = useState<UpcomingAudit[]>([]);
-  const [recurrence, setRecurrence]     = useState<RecurrentItem[]>([]);
+  const [recurrence, setRecurrence]       = useState<RecurrentItem[]>([]);
 
+  // ── OEE state ──
+  const [oeeToday,   setOeeToday]   = useState<OEESummary | null>(null);
+  const [oeeAssets,  setOeeAssets]  = useState<AssetOEESummary[] | null>(null);
+  const [oeeDowntime,setOeeDowntime]= useState<DowntimeEvent[]>([]);
+  const [oeeTrend14, setOeeTrend14] = useState<OEETrendPoint[]>([]);
+  const [oeeLoading, setOeeLoading] = useState(true);
+
+  // ── Audit fetch ──
   useEffect(() => {
     const in7 = new Date(Date.now() + 7 * 86400000).toISOString();
     const now  = new Date().toISOString();
@@ -73,12 +144,43 @@ export default function DashboardPage() {
     });
   }, []);
 
+  // ── OEE fetch (4 en paralelo con allSettled para resistencia a fallos) ──
+  useEffect(() => {
+    const todayStr  = new Date().toISOString().slice(0, 10);
+    const d2ago     = new Date(Date.now() - 2  * 86400000).toISOString().slice(0, 10);
+    const d14ago    = new Date(Date.now() - 14 * 86400000).toISOString().slice(0, 10);
+    const todayEnd  = new Date().toISOString();
+
+    Promise.allSettled([
+      oeeApi.getPlantSummary({ startDate: todayStr, endDate: todayStr }),
+      oeeApi.getAssetsRanking({ startDate: d2ago, endDate: todayStr, limit: 3, order: 'asc' }),
+      oeeApi.getDowntimeEvents({ open: 'true', limit: 5 }),
+      oeeApi.getTrend({ startDate: d14ago, endDate: todayEnd, groupBy: 'day' }),
+    ]).then(([today, assets, downtime, trend]) => {
+      if (today.status    === 'fulfilled') setOeeToday(today.value);
+      if (assets.status   === 'fulfilled') setOeeAssets(assets.value);
+      if (downtime.status === 'fulfilled') setOeeDowntime(downtime.value.data);
+      if (trend.status    === 'fulfilled') setOeeTrend14(trend.value);
+      setOeeLoading(false);
+    });
+  }, []);
+
+  // ── Derived ──
   const openCapas    = auditDash?.capaStats.open ?? 0;
   const overdueCapas = auditDash?.capaStats.overdue ?? 0;
   const avgScore = auditDash?.byArea
     ? Math.round((auditDash.byArea.filter(a => a.avgScore !== null).reduce((s, a) => s + (a.avgScore ?? 0), 0) /
         Math.max(auditDash.byArea.filter(a => a.avgScore !== null).length, 1)) * 10) / 10
     : null;
+
+  // OEE sparkline & delta
+  const last7      = oeeTrend14.slice(-7);
+  const prev7      = oeeTrend14.slice(0, Math.max(0, oeeTrend14.length - 7));
+  const avgArr     = (arr: OEETrendPoint[]) => arr.length ? arr.reduce((s, p) => s + (p.oee ?? 0), 0) / arr.length : 0;
+  const trendLast  = avgArr(last7);
+  const trendPrev  = avgArr(prev7);
+  const trendDelta = trendLast - trendPrev;
+  const sparkOEE   = last7.map(p => p.oee ?? 0);
 
   const kpis = [
     { label: 'Pendientes',   value: pending,    color: '#e67e22', spark: SPARK.pending,    sub: 'requieren atención' },
@@ -241,6 +343,329 @@ export default function DashboardPage() {
             </Card>
           </div>
         </div>
+
+        {/* ═══════════════════════════════════════════════════════════════════ */}
+        {/* ── Sección OEE ──────────────────────────────────────────────────── */}
+        {/* ═══════════════════════════════════════════════════════════════════ */}
+        <div style={{ marginBottom: 20 }}>
+
+          {/* Cabecera de sección */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+            <Gauge size={15} color="var(--sz-accent)" />
+            <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--sz-text)', letterSpacing: '.3px' }}>
+              OEE — Indicadores del Día
+            </span>
+            <span style={{ fontSize: 11, color: 'var(--sz-muted)', marginLeft: 2 }}>
+              {new Date().toLocaleDateString('es-MX', { weekday: 'long', day: 'numeric', month: 'long' })}
+            </span>
+            <button
+              onClick={() => navigate('/oee')}
+              style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--sz-accent)', background: 'none', border: 'none', cursor: 'pointer' }}
+            >
+              Módulo OEE →
+            </button>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+
+            {/* ── Columna izquierda: Widget 1 + Widget 4 ── */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+
+              {/* Widget 1 — OEE Global del Día */}
+              <Card>
+                <CardHeader title="OEE Global del Día" subtitle="Planta completa · hoy" />
+                {oeeLoading ? (
+                  <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <div style={{ display: 'flex', gap: 12, marginBottom: 4 }}>
+                      <div className="sz-skeleton" style={{ width: 80, height: 80, borderRadius: '50%', flexShrink: 0 }} />
+                      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6, justifyContent: 'center' }}>
+                        <div className="sz-skeleton" style={{ height: 14 }} />
+                        <div className="sz-skeleton" style={{ height: 12, width: '70%' }} />
+                      </div>
+                    </div>
+                    <div className="sz-skeleton" style={{ height: 10 }} />
+                    <div className="sz-skeleton" style={{ height: 10 }} />
+                    <div className="sz-skeleton" style={{ height: 10 }} />
+                  </div>
+                ) : oeeToday && oeeToday.recordCount > 0 ? (
+                  <div style={{ padding: '16px' }}>
+                    {/* Donut + big number centrado */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 14 }}>
+                      <div style={{ position: 'relative', flexShrink: 0, width: 80, height: 80 }}>
+                        <DonutOEE value={oeeToday.oee} size={80} />
+                        <div style={{
+                          position: 'absolute', inset: 0,
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        }}>
+                          <span style={{ fontSize: 15, fontWeight: 800, color: oeeColor(oeeToday.oee), lineHeight: 1 }}>
+                            {oeeToday.oee.toFixed(1)}%
+                          </span>
+                        </div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 10, color: 'var(--sz-muted)', marginBottom: 3 }}>
+                          Benchmark ≥ 85%
+                        </div>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: oeeColor(oeeToday.oee), lineHeight: 1.3 }}>
+                          {oeeToday.oee >= 85
+                            ? '✓ Por encima del objetivo'
+                            : oeeToday.oee >= 65
+                            ? '⚠ Por debajo del objetivo'
+                            : '✗ Nivel crítico'}
+                        </div>
+                        <div style={{ fontSize: 11, color: 'var(--sz-muted)', marginTop: 4 }}>
+                          {oeeToday.recordCount} registro{oeeToday.recordCount !== 1 ? 's' : ''} hoy
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Barras A / P / Q */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+                      {[
+                        { k: 'A', label: 'Disponib.',   v: oeeToday.availability },
+                        { k: 'P', label: 'Rendimien.', v: oeeToday.performance },
+                        { k: 'Q', label: 'Calidad',    v: oeeToday.quality },
+                      ].map(({ k, label, v }) => (
+                        <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{ width: 10, fontSize: 9, fontWeight: 800, color: 'var(--sz-muted)' }}>{k}</span>
+                          <span style={{ width: 54, fontSize: 10, color: 'var(--sz-muted)' }}>{label}</span>
+                          <div style={{ flex: 1 }}>
+                            <ProgressBar value={v} color={oeeColor(v)} height={5} />
+                          </div>
+                          <span style={{ width: 38, fontSize: 11, fontWeight: 700, textAlign: 'right', color: oeeColor(v) }}>
+                            {v.toFixed(1)}%
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ padding: '24px 16px', textAlign: 'center' }}>
+                    <Gauge size={24} color="#ccc" style={{ margin: '0 auto 8px', display: 'block' }} />
+                    <div style={{ fontSize: 12, color: 'var(--sz-muted)' }}>Sin registros OEE hoy</div>
+                    <button onClick={() => navigate('/oee')} style={{ marginTop: 8, fontSize: 11, color: 'var(--sz-accent)', background: 'none', border: 'none', cursor: 'pointer' }}>
+                      Registrar →
+                    </button>
+                  </div>
+                )}
+              </Card>
+
+              {/* Widget 4 — Sparkline de tendencia 7 días */}
+              <Card>
+                <CardHeader title="Tendencia OEE" subtitle="Últimos 7 días" />
+                {oeeLoading ? (
+                  <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <div className="sz-skeleton" style={{ height: 44 }} />
+                    <div className="sz-skeleton" style={{ height: 12, width: '60%' }} />
+                  </div>
+                ) : sparkOEE.length > 0 ? (
+                  <div style={{ padding: '12px 16px' }}>
+                    <SparkLine data={sparkOEE} color={oeeColor(trendLast)} width={220} height={44} />
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 6 }}>
+                      <span style={{ fontSize: 11, color: 'var(--sz-muted)' }}>
+                        Media:{' '}
+                        <strong style={{ color: oeeColor(trendLast) }}>
+                          {trendLast.toFixed(1)}%
+                        </strong>
+                      </span>
+                      {prev7.length > 0 && (
+                        <span style={{
+                          fontSize: 11, fontWeight: 700,
+                          color: trendDelta >= 0 ? '#27ae60' : '#c0392b',
+                          display: 'flex', alignItems: 'center', gap: 2,
+                        }}>
+                          {trendDelta >= 0
+                            ? <TrendingUp size={11} />
+                            : <TrendingDown size={11} />}
+                          {trendDelta >= 0 ? '+' : ''}{trendDelta.toFixed(1)} pp
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ fontSize: 10, color: 'var(--sz-muted)', marginTop: 2 }}>
+                      vs. semana anterior
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ padding: '16px', textAlign: 'center', fontSize: 12, color: 'var(--sz-muted)' }}>
+                    Sin datos de tendencia
+                  </div>
+                )}
+              </Card>
+            </div>
+
+            {/* ── Columna central: Widget 2 — Top 3 Activos con Menor OEE ── */}
+            <Card>
+              <CardHeader title="Activos con Menor OEE" subtitle="Últimas 48 h · peores 3" />
+              {oeeLoading ? (
+                <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  {[1, 2, 3].map(i => (
+                    <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      <div className="sz-skeleton" style={{ height: 14, width: '80%' }} />
+                      <div className="sz-skeleton" style={{ height: 8 }} />
+                    </div>
+                  ))}
+                </div>
+              ) : oeeAssets && oeeAssets.length > 0 ? (
+                <div style={{ padding: '8px 0' }}>
+                  {oeeAssets.map((asset, idx) => {
+                    const c = oeeColor(asset.oee);
+                    const rankColors = ['#c0392b', '#e67e22', '#e67e22'];
+                    return (
+                      <div
+                        key={asset.assetId}
+                        style={{
+                          padding: '12px 16px',
+                          borderBottom: idx < oeeAssets.length - 1 ? '1px solid var(--sz-border)' : 'none',
+                        }}
+                      >
+                        {/* Fila superior: rango + nombre + badge OEE */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                          <div style={{
+                            width: 20, height: 20, borderRadius: '50%',
+                            background: rankColors[idx] ?? '#aaa',
+                            color: '#fff', fontSize: 10, fontWeight: 800,
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            flexShrink: 0,
+                          }}>{idx + 1}</div>
+
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--sz-text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {asset.name}
+                            </div>
+                            <div style={{ fontSize: 10, color: 'var(--sz-muted)' }}>
+                              <span style={{ fontFamily: 'IBM Plex Mono, monospace', color: 'var(--sz-accent)' }}>
+                                {asset.code}
+                              </span>
+                              {' · '}{asset.area}
+                            </div>
+                          </div>
+
+                          <div style={{
+                            background: `${c}1a`, border: `1px solid ${c}44`,
+                            borderRadius: 4, padding: '2px 7px',
+                            fontSize: 12, fontWeight: 800, color: c, flexShrink: 0,
+                          }}>
+                            {asset.oee.toFixed(1)}%
+                          </div>
+                        </div>
+
+                        {/* Barra de progreso OEE */}
+                        <ProgressBar value={asset.oee} color={c} height={5} />
+
+                        {/* Mini A/P/Q inline */}
+                        <div style={{ display: 'flex', gap: 12, marginTop: 5 }}>
+                          {[
+                            { k: 'A', v: asset.availability },
+                            { k: 'P', v: asset.performance },
+                            { k: 'Q', v: asset.quality },
+                          ].map(({ k, v }) => (
+                            <span key={k} style={{ fontSize: 10, color: 'var(--sz-muted)' }}>
+                              <strong style={{ color: oeeColor(v) }}>{k}</strong> {v.toFixed(0)}%
+                            </span>
+                          ))}
+                          <span style={{ fontSize: 10, color: 'var(--sz-muted)', marginLeft: 'auto' }}>
+                            {asset.recordCount} reg.
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div style={{ padding: '24px 16px', textAlign: 'center' }}>
+                  <CheckCircle2 size={24} color="#27ae60" style={{ margin: '0 auto 8px', display: 'block' }} />
+                  <div style={{ fontSize: 12, color: 'var(--sz-muted)' }}>Sin datos de activos en las últimas 48 h</div>
+                </div>
+              )}
+            </Card>
+
+            {/* ── Columna derecha: Widget 3 — Paradas Activas ── */}
+            <Card>
+              <CardHeader
+                title="Paradas Activas"
+                subtitle="Sin cierre · tiempo real"
+                action={
+                  <div style={{
+                    width: 8, height: 8, borderRadius: '50%',
+                    background: oeeDowntime.length > 0 ? '#c0392b' : '#27ae60',
+                    boxShadow: oeeDowntime.length > 0 ? '0 0 0 2px #fde8e6' : '0 0 0 2px #e6f9ee',
+                  }} />
+                }
+              />
+              {oeeLoading ? (
+                <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {[1, 2].map(i => (
+                    <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                      <div className="sz-skeleton" style={{ height: 14, width: '75%' }} />
+                      <div className="sz-skeleton" style={{ height: 10, width: '50%' }} />
+                    </div>
+                  ))}
+                </div>
+              ) : oeeDowntime.length > 0 ? (
+                <div style={{ padding: '8px 0' }}>
+                  {oeeDowntime.map((ev, idx) => {
+                    const cat = DT_CATEGORY[ev.category] ?? { label: ev.category, color: '#888', bg: '#f0f0f0' };
+                    return (
+                      <div
+                        key={ev.id}
+                        style={{
+                          padding: '10px 16px',
+                          borderBottom: idx < oeeDowntime.length - 1 ? '1px solid var(--sz-border)' : 'none',
+                        }}
+                      >
+                        {/* Categoría + tiempo transcurrido */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                          <span style={{
+                            background: cat.bg, color: cat.color,
+                            fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 3,
+                            textTransform: 'uppercase', letterSpacing: '.3px', flexShrink: 0,
+                          }}>
+                            {cat.label}
+                          </span>
+                          <span style={{ marginLeft: 'auto', fontSize: 11, fontWeight: 700, color: '#c0392b', display: 'flex', alignItems: 'center', gap: 3 }}>
+                            <Activity size={10} />
+                            <ElapsedTimer startTime={ev.startTime} />
+                          </span>
+                        </div>
+
+                        {/* Motivo */}
+                        <div style={{
+                          fontSize: 12, fontWeight: 500, color: 'var(--sz-text)',
+                          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                          marginBottom: 2,
+                        }}>
+                          {ev.reason.length > 52 ? ev.reason.slice(0, 50) + '…' : ev.reason}
+                        </div>
+
+                        {/* Activo + inicio */}
+                        <div style={{ fontSize: 10, color: 'var(--sz-muted)' }}>
+                          <span style={{ fontFamily: 'IBM Plex Mono, monospace', color: 'var(--sz-accent)' }}>
+                            {ev.asset?.code ?? ev.assetId.slice(0, 8)}
+                          </span>
+                          {ev.asset?.name ? ` · ${ev.asset.name}` : ''}
+                          {' · '}
+                          {new Date(ev.startTime).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div style={{ padding: '32px 16px', textAlign: 'center' }}>
+                  <CheckCircle2 size={28} color="#27ae60" style={{ margin: '0 auto 10px', display: 'block' }} />
+                  <div style={{ fontSize: 13, fontWeight: 600, color: '#27ae60', marginBottom: 4 }}>
+                    Sin paradas activas
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--sz-muted)' }}>
+                    Todos los activos operando normalmente
+                  </div>
+                </div>
+              )}
+            </Card>
+
+          </div>
+        </div>
+        {/* ── Fin sección OEE ── */}
 
         {/* ── Tendencia histórica ── */}
         <Card style={{ marginBottom: 20 }}>
