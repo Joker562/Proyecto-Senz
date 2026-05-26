@@ -60,9 +60,17 @@ export default function CreateWorkOrderModal({ open, onClose, onCreated }: Props
     setStep(1);
     setSubmitted(false);
     setForm(INITIAL_FORM);
-    Promise.all([api.get<Asset[]>('/assets'), api.get<User[]>('/users')]).then(([a, u]) => {
-      setAssets(a.data);
-      setUsers(u.data.filter((user) => (user.role === 'TECHNICIAN' || user.role === 'SUPERVISOR') && (user as typeof user & { active?: boolean }).active !== false));
+    // allSettled: si /users falla (403 para TECHNICIAN), los assets siguen cargando
+    Promise.allSettled([
+      api.get<Asset[]>('/assets'),
+      api.get<(User & { active?: boolean })[]>('/users'),
+    ]).then(([assetsRes, usersRes]) => {
+      if (assetsRes.status === 'fulfilled') setAssets(assetsRes.value.data);
+      if (usersRes.status === 'fulfilled') {
+        setUsers(usersRes.value.data.filter(
+          (u) => (u.role === 'TECHNICIAN' || u.role === 'SUPERVISOR') && u.active !== false
+        ));
+      }
     });
   }, [open]);
 
@@ -89,8 +97,12 @@ export default function CreateWorkOrderModal({ open, onClose, onCreated }: Props
         onCreated();
         onClose();
       }, 1500);
-    } catch {
-      push('Error al crear la orden', 'error');
+    } catch (err: unknown) {
+      // Mostrar mensaje específico del backend si existe
+      const msg =
+        (err as { response?: { data?: { error?: string } } })?.response?.data?.error
+        ?? 'Error al crear la orden de trabajo';
+      push(msg, 'error');
     } finally {
       setLoading(false);
     }
