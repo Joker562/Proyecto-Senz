@@ -53,6 +53,8 @@ import fuelRouter        from './routes/fuel';
 import maintenanceRouter from './routes/maintenance';
 import alertsRouter      from './routes/alerts';
 import reportsRouter     from './routes/reports';
+import oeeRouter         from './routes/oee';
+import downtimeRouter    from './routes/downtime';
 
 const app = express();
 const httpServer = http.createServer(app);
@@ -87,6 +89,8 @@ app.use('/api/fleet/fuel',        fuelRouter);
 app.use('/api/fleet/maintenance', maintenanceRouter);
 app.use('/api/fleet/alerts',     alertsRouter);
 app.use('/api/fleet/reports',    reportsRouter);
+app.use('/api/oee',             oeeRouter);
+app.use('/api/downtime',        downtimeRouter);
 
 app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   console.error(err);
