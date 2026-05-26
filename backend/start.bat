@@ -1,6 +1,6 @@
 @echo off
 cd /d "%~dp0"
-SET DATABASE_URL=file:./prisma/dev.db
+REM DATABASE_URL se carga desde .env (no se hardcodea aquí para mantener secretos fuera de git)
 SET JWT_SECRET=planta-mtto-secret-2024-xK9mP2qL
 SET PORT=4000
 SET FRONTEND_URL=*
