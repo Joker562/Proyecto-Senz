@@ -1,7 +1,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { BarChart3, AlertTriangle } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { usePermissions, type PermKey } from '@/hooks/usePermissions';
 import { ThemeProvider } from '@/theme/ThemeContext';
@@ -16,7 +15,6 @@ import ChecklistTemplatesPage from '@/pages/ChecklistTemplatesPage';
 import UsersPage from '@/pages/UsersPage';
 import SettingsPage from '@/pages/SettingsPage';
 import WorkOrderDetailPage from '@/pages/WorkOrderDetailPage';
-import PlaceholderPage from '@/pages/PlaceholderPage';
 import AuditsPage from '@/pages/AuditsPage';
 import AuditDetailPage from '@/pages/AuditDetailPage';
 import AuditFindingsPage from '@/pages/AuditFindingsPage';
@@ -24,7 +22,9 @@ import AuditTemplatesPage from '@/pages/AuditTemplatesPage';
 import ReporteCapasPage from '@/pages/ReporteCapasPage';
 import ReporteMensualPage from '@/pages/ReporteMensualPage';
 import AuditsCalendarPage from '@/pages/AuditsCalendarPage';
-import OEEDashboardPage from '@/pages/OEEDashboardPage';
+import OEEDashboardPage   from '@/pages/OEEDashboardPage';
+import OEERecordsPage     from '@/pages/oee/OEERecordsPage';
+import OEEDowntimePage    from '@/pages/oee/OEEDowntimePage';
 import FleetDashboardPage    from '@/pages/fleet/FleetDashboardPage';
 import FleetVehiclesPage     from '@/pages/fleet/FleetVehiclesPage';
 import FleetFuelPage         from '@/pages/fleet/FleetFuelPage';
@@ -54,27 +54,7 @@ function PermissionGuard({ moduleKey, children }: { moduleKey: PermKey; children
   return <>{children}</>;
 }
 
-// ─── Páginas placeholder ──────────────────────────────────────────────────────
-
-const OEERecordsPage = () => (
-  <PlaceholderPage icon={BarChart3} title="Registros OEE"
-    subtitle="Ingreso diario de datos productivos por equipo y turno para el cálculo de OEE."
-    features={[
-      { label: 'Formulario de turno', description: 'Tiempo planificado, unidades producidas, piezas defectuosas y tiempo de ciclo ideal.' },
-      { label: 'Cálculo automático', description: 'El sistema calcula disponibilidad, rendimiento, calidad y OEE al guardar.' },
-      { label: 'Asociación a activos', description: 'Cada registro se vincula a un equipo existente del catálogo de activos.' },
-    ]} accentColor="#2980b9" />
-);
-
-const OEEDowntimePage = () => (
-  <PlaceholderPage icon={AlertTriangle} title="Eventos de Paro"
-    subtitle="Registro y categorización de los paros de producción para análisis de causas raíz."
-    features={[
-      { label: 'Tipos de paro', description: 'Mantenimiento planificado, falla imprevista, cambio de formato, falta de material, sin operador.' },
-      { label: 'Duración exacta', description: 'Hora de inicio y fin del paro para calcular minutos de downtime con precisión.' },
-      { label: 'Análisis de Pareto', description: 'Visualización de las causas más frecuentes para priorizar mejoras.' },
-    ]} accentColor="#2980b9" />
-);
+// OEERecordsPage y OEEDowntimePage ahora son páginas reales (importadas arriba)
 
 
 // ─── Router ───────────────────────────────────────────────────────────────────
