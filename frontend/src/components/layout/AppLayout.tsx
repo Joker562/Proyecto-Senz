@@ -2,7 +2,7 @@ import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, ClipboardList, Factory, Calendar, Users, LogOut, Menu, X,
   CalendarDays, CheckSquare, Settings, Wrench, Car, BarChart3, ClipboardCheck,
-  Truck, AlertTriangle, ClipboardX, FileText, TrendingUp, Droplets, Home, FileDown,
+  Truck, AlertTriangle, ClipboardX, FileText, TrendingUp, Droplets, Home, FileDown, BookOpen,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/hooks/useAuth';
@@ -73,8 +73,9 @@ const NAV_BY_MODULE: Record<ModuleId, NavItemDef[]> = {
     { to: '/audits/reports/monthly', icon: TrendingUp,     label: 'Mensual',    fullLabel: 'Cumplimiento Mensual' },
   ],
   admin: [
-    { to: '/users',    icon: Users,    label: 'Usuarios', fullLabel: 'Usuarios',       module: 'users'    },
-    { to: '/settings', icon: Settings, label: 'Config',   fullLabel: 'Configuración',  module: 'settings' },
+    { to: '/users',    icon: Users,    label: 'Usuarios', fullLabel: 'Usuarios',        module: 'users'    },
+    { to: '/settings', icon: Settings, label: 'Config',   fullLabel: 'Configuración',   module: 'settings' },
+    { to: '/manuals',  icon: BookOpen, label: 'Manuales', fullLabel: 'Manuales de Uso'                    },
   ],
 };
 
@@ -84,7 +85,7 @@ function getActiveModule(pathname: string): ModuleId {
   if (pathname.startsWith('/fleet'))        return 'fleet';
   if (pathname.startsWith('/oee'))          return 'oee';
   if (pathname.startsWith('/audits'))       return 'audits';
-  if (pathname === '/users' || pathname === '/settings') return 'admin';
+  if (pathname === '/users' || pathname === '/settings' || pathname === '/manuals') return 'admin';
   return 'maintenance';
 }
 

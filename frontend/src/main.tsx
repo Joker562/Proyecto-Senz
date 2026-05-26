@@ -27,6 +27,7 @@ import OEERecordsPage     from '@/pages/oee/OEERecordsPage';
 import OEEDowntimePage    from '@/pages/oee/OEEDowntimePage';
 import OEEReportsPage     from '@/pages/oee/OEEReportsPage';
 import MaintenanceDashboardPage from '@/pages/MaintenanceDashboardPage';
+import ManualesPage from '@/pages/ManualesPage';
 import FleetDashboardPage    from '@/pages/fleet/FleetDashboardPage';
 import FleetVehiclesPage     from '@/pages/fleet/FleetVehiclesPage';
 import FleetFuelPage         from '@/pages/fleet/FleetFuelPage';
@@ -95,6 +96,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
             <Route path="settings" element={
               <PermissionGuard moduleKey="settings"><SettingsPage /></PermissionGuard>
             } />
+            <Route path="manuals" element={<ManualesPage />} />
 
             {/* ── Flota ─────────────────────────────────────────────────── */}
             <Route path="fleet" element={
