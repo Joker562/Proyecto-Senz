@@ -25,6 +25,7 @@ import AuditsCalendarPage from '@/pages/AuditsCalendarPage';
 import OEEDashboardPage   from '@/pages/OEEDashboardPage';
 import OEERecordsPage     from '@/pages/oee/OEERecordsPage';
 import OEEDowntimePage    from '@/pages/oee/OEEDowntimePage';
+import OEEReportsPage     from '@/pages/oee/OEEReportsPage';
 import FleetDashboardPage    from '@/pages/fleet/FleetDashboardPage';
 import FleetVehiclesPage     from '@/pages/fleet/FleetVehiclesPage';
 import FleetFuelPage         from '@/pages/fleet/FleetFuelPage';
@@ -125,6 +126,9 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
             } />
             <Route path="oee/downtime" element={
               <PermissionGuard moduleKey="oee"><OEEDowntimePage /></PermissionGuard>
+            } />
+            <Route path="oee/reports" element={
+              <PermissionGuard moduleKey="oee"><OEEReportsPage /></PermissionGuard>
             } />
 
             {/* ── Auditorías ────────────────────────────────────────────── */}

@@ -2,7 +2,7 @@ import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, ClipboardList, Factory, Calendar, Users, LogOut, Menu, X,
   CalendarDays, CheckSquare, Settings, Wrench, Car, BarChart3, ClipboardCheck,
-  Truck, AlertTriangle, ClipboardX, FileText, TrendingUp, Droplets, Home,
+  Truck, AlertTriangle, ClipboardX, FileText, TrendingUp, Droplets, Home, FileDown,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/hooks/useAuth';
@@ -62,6 +62,7 @@ const NAV_BY_MODULE: Record<ModuleId, NavItemDef[]> = {
     { to: '/oee',          icon: BarChart3,     label: 'Dashboard', fullLabel: 'Dashboard OEE',  exact: true },
     { to: '/oee/records',  icon: ClipboardList, label: 'Registros', fullLabel: 'Registros OEE' },
     { to: '/oee/downtime', icon: AlertTriangle, label: 'Paros',     fullLabel: 'Eventos de Paro' },
+    { to: '/oee/reports',  icon: FileDown,      label: 'Reportes',  fullLabel: 'Reportes OEE' },
   ],
   audits: [
     { to: '/audits',                 icon: ClipboardCheck, label: 'Auditorías', fullLabel: 'Auditorías',          exact: true },

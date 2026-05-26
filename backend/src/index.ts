@@ -31,6 +31,7 @@ import cors from 'cors';
 import { setupSocket } from './socket';
 import { startAutoOTCron } from './services/autoOT';
 import { startAuditCron } from './services/auditCron';
+import { startOEEMonthlyCron } from './jobs/oeeMonthlyReport';
 import { initNotifications } from './services/notifications';
 import { UPLOAD_DIR } from './services/upload';
 import authRouter from './routes/auth';
@@ -99,6 +100,7 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
 
 startAutoOTCron();
 startAuditCron();
+startOEEMonthlyCron();
 
 const PORT = process.env.PORT || 4000;
 httpServer.listen(Number(PORT), '0.0.0.0', () => {

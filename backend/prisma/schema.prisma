@@ -534,6 +534,25 @@ model DowntimeEvent {
   @@map("downtime_events")
 }
 
+model OEEMonthlyReport {
+  id                String   @id @default(cuid())
+  year              Int
+  month             Int      // 1–12
+  oee               Float
+  availability      Float
+  performance       Float
+  quality           Float
+  recordCount       Int
+  totalGood         Int
+  totalDefects      Int
+  totalPlannedHours Float
+  byAsset           Json     // Array serializado de resúmenes por activo
+  generatedAt       DateTime @default(now())
+
+  @@unique([year, month])
+  @@map("oee_monthly_reports")
+}
+
 // ─── Módulo de Flota ──────────────────────────────────────────────────────────
 
 model Vehicle {
