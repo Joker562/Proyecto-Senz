@@ -526,6 +526,230 @@ async function main() {
     }
   }
 
+  // ── OEE Records & Downtime Events ────────────────────────────────────────────
+  const oeeCount = await prisma.oEERecord.count();
+  if (oeeCount === 0) {
+    const operator = await prisma.user.findFirst({ where: { role: 'TECHNICIAN' } });
+    const recorder = await prisma.user.findFirst({ where: { role: 'SUPERVISOR' } });
+    if (!operator || !recorder) {
+      console.log('⚠️  Faltan usuarios para seed de OEE');
+    } else {
+
+      // Helper: calcula los 4 componentes OEE
+      function calcOEE(
+        plannedTime: number,
+        breakTime: number,
+        availabilityLossMin: number,
+        totalCount: number,
+        goodCount: number,
+        idealCycleTime: number,
+      ) {
+        const actualTime   = plannedTime - breakTime - availabilityLossMin;
+        const availability = Math.round((actualTime / plannedTime) * 1000) / 10;
+        const performance  = Math.round(Math.min((idealCycleTime * totalCount / actualTime) * 100, 100) * 10) / 10;
+        const quality      = Math.round((goodCount / totalCount) * 1000) / 10;
+        const oee          = Math.round((availability / 100) * (performance / 100) * (quality / 100) * 1000) / 10;
+        return { availability, performance, quality, oee };
+      }
+
+      // Helper: fecha de N días atrás, hora de inicio de turno mañana
+      function dayAt(daysBack: number, hour = 6): Date {
+        const d = new Date();
+        d.setDate(d.getDate() - daysBack);
+        d.setHours(hour, 0, 0, 0);
+        return d;
+      }
+
+      // ── COMP-001: Compresor Principal (5 días) ─────────────────────────────
+      // Día -5: paro imprevisto por sobrecalentamiento (25 min)
+      await prisma.oEERecord.create({ data: {
+        date: dayAt(5), shift: 'MORNING',
+        plannedTime: 480, breakTime: 30, idealCycleTime: 1.5,
+        totalCount: 280, goodCount: 276,
+        ...calcOEE(480, 30, 25, 280, 276, 1.5),
+        notes: 'Paro imprevisto por sobrecalentamiento al inicio del turno.',
+        assetId: asset1.id, operatorId: operator.id, recordedById: recorder.id,
+        downtimeEvents: { create: [{
+          startTime: new Date(dayAt(5, 6).getTime() + 2 * 3_600_000),
+          endTime:   new Date(dayAt(5, 6).getTime() + 2 * 3_600_000 + 25 * 60_000),
+          duration: 25, category: 'UNPLANNED', lossType: 'AVAILABILITY',
+          reason: 'Sobrecalentamiento en motor eléctrico principal',
+          assetId: asset1.id, reportedById: operator.id,
+        }]},
+      }});
+
+      // Día -4: turno limpio sin paros
+      await prisma.oEERecord.create({ data: {
+        date: dayAt(4), shift: 'MORNING',
+        plannedTime: 480, breakTime: 30, idealCycleTime: 1.5,
+        totalCount: 290, goodCount: 288,
+        ...calcOEE(480, 30, 0, 290, 288, 1.5),
+        notes: 'Turno sin incidentes. Mejor producción de la semana.',
+        assetId: asset1.id, operatorId: operator.id, recordedById: recorder.id,
+      }});
+
+      // Día -3: cambio de aceite programado (20 min) + microparos por ajuste de válvulas (10 min PERFORMANCE)
+      await prisma.oEERecord.create({ data: {
+        date: dayAt(3), shift: 'MORNING',
+        plannedTime: 480, breakTime: 30, idealCycleTime: 1.5,
+        totalCount: 270, goodCount: 266,
+        ...calcOEE(480, 30, 20, 270, 266, 1.5),
+        notes: 'PM programado de cambio de aceite. Pequeños ajustes de válvulas en turno.',
+        assetId: asset1.id, operatorId: operator.id, recordedById: recorder.id,
+        downtimeEvents: { create: [
+          {
+            startTime: new Date(dayAt(3, 6).getTime() + 1 * 3_600_000),
+            endTime:   new Date(dayAt(3, 6).getTime() + 1 * 3_600_000 + 20 * 60_000),
+            duration: 20, category: 'PLANNED', lossType: 'AVAILABILITY',
+            reason: 'Cambio de aceite lubricante — mantenimiento programado',
+            assetId: asset1.id, reportedById: operator.id,
+          },
+          {
+            startTime: new Date(dayAt(3, 6).getTime() + 4 * 3_600_000),
+            endTime:   new Date(dayAt(3, 6).getTime() + 4 * 3_600_000 + 10 * 60_000),
+            duration: 10, category: 'MINOR_STOP', lossType: 'PERFORMANCE',
+            reason: 'Ajuste de válvulas de presión — microparo repetitivo',
+            assetId: asset1.id, reportedById: operator.id,
+          },
+        ]},
+      }});
+
+      // Día -2: falla eléctrica en panel de control (40 min)
+      await prisma.oEERecord.create({ data: {
+        date: dayAt(2), shift: 'MORNING',
+        plannedTime: 480, breakTime: 30, idealCycleTime: 1.5,
+        totalCount: 255, goodCount: 248,
+        ...calcOEE(480, 30, 40, 255, 248, 1.5),
+        notes: 'Falla eléctrica detuvo producción 40 minutos. Se escaló a mantenimiento eléctrico.',
+        assetId: asset1.id, operatorId: operator.id, recordedById: recorder.id,
+        downtimeEvents: { create: [{
+          startTime: new Date(dayAt(2, 6).getTime() + 3 * 3_600_000),
+          endTime:   new Date(dayAt(2, 6).getTime() + 3 * 3_600_000 + 40 * 60_000),
+          duration: 40, category: 'UNPLANNED', lossType: 'AVAILABILITY',
+          reason: 'Falla eléctrica en panel de control — disparo de breaker',
+          assetId: asset1.id, reportedById: operator.id,
+        }]},
+      }});
+
+      // Día -1: turno tarde con paro por setup
+      await prisma.oEERecord.create({ data: {
+        date: dayAt(1), shift: 'AFTERNOON',
+        plannedTime: 480, breakTime: 30, idealCycleTime: 1.5,
+        totalCount: 278, goodCount: 275,
+        ...calcOEE(480, 30, 15, 278, 275, 1.5),
+        notes: 'Cambio de referencia al inicio del turno tarde.',
+        assetId: asset1.id, operatorId: operator.id, recordedById: recorder.id,
+        downtimeEvents: { create: [{
+          startTime: new Date(dayAt(1, 14).getTime()),
+          endTime:   new Date(dayAt(1, 14).getTime() + 15 * 60_000),
+          duration: 15, category: 'SETUP', lossType: 'AVAILABILITY',
+          reason: 'Setup por cambio de referencia de producción',
+          assetId: asset1.id, reportedById: operator.id,
+        }]},
+      }});
+
+      // ── BOMB-001: Bomba Hidráulica (3 días) ────────────────────────────────
+      // Día -3: fuga en sello mecánico (30 min) — ya está en OT como CORRECTIVE
+      await prisma.oEERecord.create({ data: {
+        date: dayAt(3), shift: 'MORNING',
+        plannedTime: 480, breakTime: 30, idealCycleTime: 2.0,
+        totalCount: 200, goodCount: 194,
+        ...calcOEE(480, 30, 30, 200, 194, 2.0),
+        notes: 'Se detectó fuga en sello mecánico. Se abrió OT correctiva.',
+        assetId: asset2.id, operatorId: operator.id, recordedById: recorder.id,
+        downtimeEvents: { create: [{
+          startTime: new Date(dayAt(3, 6).getTime() + 2 * 3_600_000),
+          endTime:   new Date(dayAt(3, 6).getTime() + 2 * 3_600_000 + 30 * 60_000),
+          duration: 30, category: 'UNPLANNED', lossType: 'AVAILABILITY',
+          reason: 'Fuga en sello mecánico frontal — parada forzada',
+          assetId: asset2.id, reportedById: operator.id,
+        }]},
+      }});
+
+      // Día -2: turno limpio
+      await prisma.oEERecord.create({ data: {
+        date: dayAt(2), shift: 'MORNING',
+        plannedTime: 480, breakTime: 30, idealCycleTime: 2.0,
+        totalCount: 213, goodCount: 211,
+        ...calcOEE(480, 30, 0, 213, 211, 2.0),
+        notes: 'Turno sin incidencias luego de reparación de sello.',
+        assetId: asset2.id, operatorId: operator.id, recordedById: recorder.id,
+      }});
+
+      // Día -1: ajuste de caudal para nuevo lote (15 min setup)
+      await prisma.oEERecord.create({ data: {
+        date: dayAt(1), shift: 'MORNING',
+        plannedTime: 480, breakTime: 30, idealCycleTime: 2.0,
+        totalCount: 205, goodCount: 201,
+        ...calcOEE(480, 30, 15, 205, 201, 2.0),
+        notes: 'Setup por cambio de especificación de caudal para lote nuevo.',
+        assetId: asset2.id, operatorId: operator.id, recordedById: recorder.id,
+        downtimeEvents: { create: [{
+          startTime: new Date(dayAt(1, 6).getTime()),
+          endTime:   new Date(dayAt(1, 6).getTime() + 15 * 60_000),
+          duration: 15, category: 'SETUP', lossType: 'AVAILABILITY',
+          reason: 'Ajuste de caudal para nuevo lote de producción',
+          assetId: asset2.id, reportedById: operator.id,
+        }]},
+      }});
+
+      // ── CONV-001: Banda Transportadora L1 (2 días, bajo OEE por mantenimiento) ─
+      // Día -2: ruptura de banda (90 min) + piezas desalineadas (pérdida de calidad)
+      await prisma.oEERecord.create({ data: {
+        date: dayAt(2), shift: 'MORNING',
+        plannedTime: 480, breakTime: 30, idealCycleTime: 0.5,
+        totalCount: 580, goodCount: 510,
+        ...calcOEE(480, 30, 90, 580, 510, 0.5),
+        notes: 'Ruptura de banda en zona central. Piezas desalineadas hasta restablecer tensión.',
+        assetId: asset3.id, operatorId: operator.id, recordedById: recorder.id,
+        downtimeEvents: { create: [
+          {
+            startTime: new Date(dayAt(2, 6).getTime() + 1 * 3_600_000),
+            endTime:   new Date(dayAt(2, 6).getTime() + 1 * 3_600_000 + 90 * 60_000),
+            duration: 90, category: 'UNPLANNED', lossType: 'AVAILABILITY',
+            reason: 'Ruptura de banda transportadora en zona central — reparación emergente',
+            assetId: asset3.id, reportedById: operator.id,
+          },
+          {
+            startTime: new Date(dayAt(2, 6).getTime() + 5 * 3_600_000),
+            endTime:   new Date(dayAt(2, 6).getTime() + 5 * 3_600_000 + 20 * 60_000),
+            duration: 20, category: 'UNPLANNED', lossType: 'QUALITY',
+            reason: 'Piezas desalineadas por tensión incorrecta post-reparación',
+            assetId: asset3.id, reportedById: operator.id,
+          },
+        ]},
+      }});
+
+      // Día -1: mantenimiento mayor programado (60 min) + fallo en rodamiento (30 min)
+      await prisma.oEERecord.create({ data: {
+        date: dayAt(1), shift: 'MORNING',
+        plannedTime: 480, breakTime: 30, idealCycleTime: 0.5,
+        totalCount: 620, goodCount: 605,
+        ...calcOEE(480, 30, 90, 620, 605, 0.5),
+        notes: 'Mantenimiento mayor preventivo + fallo inesperado en rodamiento izquierdo.',
+        assetId: asset3.id, operatorId: operator.id, recordedById: recorder.id,
+        downtimeEvents: { create: [
+          {
+            startTime: new Date(dayAt(1, 6).getTime()),
+            endTime:   new Date(dayAt(1, 6).getTime() + 60 * 60_000),
+            duration: 60, category: 'PLANNED', lossType: 'AVAILABILITY',
+            reason: 'Mantenimiento preventivo mayor — ajuste de tensión y lubricación',
+            assetId: asset3.id, reportedById: operator.id,
+          },
+          {
+            startTime: new Date(dayAt(1, 6).getTime() + 5 * 3_600_000),
+            endTime:   new Date(dayAt(1, 6).getTime() + 5 * 3_600_000 + 30 * 60_000),
+            duration: 30, category: 'UNPLANNED', lossType: 'AVAILABILITY',
+            reason: 'Fallo en rodamiento izquierdo — reemplazo en sitio',
+            assetId: asset3.id, reportedById: operator.id,
+          },
+        ]},
+      }});
+
+      console.log('✅ OEE Records y Downtime Events creados (10 registros, ~12 eventos)');
+    }
+  }
+
   console.log('✅ Seed completado');
 }
 

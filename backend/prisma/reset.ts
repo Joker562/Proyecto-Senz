@@ -7,6 +7,8 @@ async function main() {
   console.log('🗑️  Eliminando todos los datos demo...');
 
   // Borrar en orden por dependencias
+  await prisma.downtimeEvent.deleteMany();
+  await prisma.oEERecord.deleteMany();
   await prisma.capaAction.deleteMany();
   await prisma.auditItem.deleteMany();
   await prisma.auditSection.deleteMany();

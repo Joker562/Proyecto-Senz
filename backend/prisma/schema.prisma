@@ -42,6 +42,11 @@ model User {
   vehicleAssignmentsAsDriver VehicleAssignment[] @relation("AssignmentDriver")
   vehicleAssignmentsCreated  VehicleAssignment[] @relation("AssignmentCreatedBy")
 
+  // OEE
+  oeeRecordsOperated OEERecord[]   @relation("OEEOperator")
+  oeeRecordsRecorded OEERecord[]   @relation("OEERecordedBy")
+  downtimeReported   DowntimeEvent[] @relation("DowntimeReportedBy")
+
   @@map("users")
 }
 
@@ -82,6 +87,8 @@ model Asset {
   workOrders       WorkOrder[]
   maintenancePlans MaintenancePlan[]
   usageLogs        AssetUsageLog[]
+  oeeRecords       OEERecord[]
+  downtimeEvents   DowntimeEvent[]
 
   @@map("assets")
 }
@@ -457,6 +464,74 @@ model Comment {
   createdAt DateTime @default(now())
 
   @@map("comments")
+}
+
+// ─── Módulo OEE ───────────────────────────────────────────────────────────────
+
+model OEERecord {
+  id             String   @id @default(cuid())
+  date           DateTime // Fecha del turno (día, sin hora relevante)
+  shift          String   // "MORNING" | "AFTERNOON" | "NIGHT"
+
+  // Tiempos en minutos
+  plannedTime    Float    // Tiempo programado de producción
+  breakTime      Float    @default(0) // Paros planificados (comidas, cambio de turno)
+
+  // Conteos de producción
+  totalCount     Int      // Piezas totales producidas (buenas + defectuosas)
+  goodCount      Int      // Piezas buenas / conformes
+  idealCycleTime Float    // Tiempo de ciclo ideal en min/pieza
+
+  // Componentes OEE calculados por el backend (0–100 %)
+  availability   Float?   // (plannedTime - downtimeTotalMin) / plannedTime × 100
+  performance    Float?   // (idealCycleTime × totalCount) / actualTime × 100
+  quality        Float?   // goodCount / totalCount × 100
+  oee            Float?   // availability × performance × quality / 10000
+
+  notes          String?
+
+  assetId        String
+  asset          Asset    @relation(fields: [assetId], references: [id])
+
+  operatorId     String?
+  operator       User?    @relation("OEEOperator", fields: [operatorId], references: [id])
+
+  recordedById   String
+  recordedBy     User     @relation("OEERecordedBy", fields: [recordedById], references: [id])
+
+  downtimeEvents DowntimeEvent[]
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([assetId, date, shift])
+  @@map("oee_records")
+}
+
+model DowntimeEvent {
+  id           String    @id @default(cuid())
+  startTime    DateTime
+  endTime      DateTime?
+  duration     Float?    // Minutos; calculado por el backend al cerrar el evento
+
+  // Clasificación según metodología OEE
+  category     String    // "PLANNED" | "UNPLANNED" | "SETUP" | "MINOR_STOP"
+  lossType     String    // "AVAILABILITY" | "PERFORMANCE" | "QUALITY"
+  reason       String    // Causa breve (ej. "Falla eléctrica", "Cambio de molde")
+  notes        String?
+
+  oeeRecordId  String
+  oeeRecord    OEERecord @relation(fields: [oeeRecordId], references: [id], onDelete: Cascade)
+
+  assetId      String
+  asset        Asset     @relation(fields: [assetId], references: [id])
+
+  reportedById String
+  reportedBy   User      @relation("DowntimeReportedBy", fields: [reportedById], references: [id])
+
+  createdAt    DateTime  @default(now())
+
+  @@map("downtime_events")
 }
 
 // ─── Módulo de Flota ──────────────────────────────────────────────────────────
