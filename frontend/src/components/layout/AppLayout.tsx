@@ -2,7 +2,7 @@ import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, ClipboardList, Factory, Calendar, Users, LogOut, Menu, X,
   CalendarDays, CheckSquare, Settings, Wrench, Car, BarChart3, ClipboardCheck,
-  Truck, AlertTriangle, ClipboardX, FileText, TrendingUp, Droplets,
+  Truck, AlertTriangle, ClipboardX, FileText, TrendingUp, Droplets, Home,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/hooks/useAuth';
@@ -14,7 +14,7 @@ import { THEMES } from '@/theme/themes';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type ModuleId  = 'maintenance' | 'fleet' | 'oee' | 'audits' | 'admin';
+type ModuleId  = 'home' | 'maintenance' | 'fleet' | 'oee' | 'audits' | 'admin';
 type ModuleKey = PermKey;
 
 interface NavItemDef {
@@ -30,14 +30,18 @@ interface NavItemDef {
 // ─── Module tabs ──────────────────────────────────────────────────────────────
 
 const MODULE_TABS: Array<{ id: ModuleId; label: string; icon: React.ElementType; defaultPath: string; permKey?: PermKey }> = [
-  { id: 'maintenance', label: 'Mtto',      icon: Wrench,         defaultPath: '/dashboard' },
-  { id: 'fleet',       label: 'Flota',     icon: Car,            defaultPath: '/fleet',    permKey: 'fleet'  },
-  { id: 'oee',         label: 'OEE',       icon: BarChart3,      defaultPath: '/oee',      permKey: 'oee'    },
-  { id: 'audits',      label: 'Auditoría', icon: ClipboardCheck, defaultPath: '/audits',   permKey: 'audits' },
-  { id: 'admin',       label: 'Admin',     icon: Settings,       defaultPath: '/users',    permKey: 'users'  },
+  { id: 'home',        label: 'Panel',     icon: Home,           defaultPath: '/dashboard'    },
+  { id: 'maintenance', label: 'Mtto',      icon: Wrench,         defaultPath: '/work-orders'  },
+  { id: 'fleet',       label: 'Flota',     icon: Car,            defaultPath: '/fleet',       permKey: 'fleet'  },
+  { id: 'oee',         label: 'OEE',       icon: BarChart3,      defaultPath: '/oee',         permKey: 'oee'    },
+  { id: 'audits',      label: 'Auditoría', icon: ClipboardCheck, defaultPath: '/audits',      permKey: 'audits' },
+  { id: 'admin',       label: 'Admin',     icon: Settings,       defaultPath: '/users',       permKey: 'users'  },
 ];
 
 const NAV_BY_MODULE: Record<ModuleId, NavItemDef[]> = {
+  home: [
+    { to: '/dashboard', icon: LayoutDashboard, label: 'Panel', fullLabel: 'Centro de Control' },
+  ],
   maintenance: [
     { to: '/dashboard',   icon: LayoutDashboard, label: 'Inicio',     fullLabel: 'Inicio',             module: 'dashboard' },
     { to: '/work-orders', icon: ClipboardList,   label: 'Órdenes',    fullLabel: 'Órdenes de Trabajo', module: 'workOrders', badge: true },
@@ -74,6 +78,7 @@ const NAV_BY_MODULE: Record<ModuleId, NavItemDef[]> = {
 };
 
 function getActiveModule(pathname: string): ModuleId {
+  if (pathname === '/dashboard')       return 'home';
   if (pathname.startsWith('/fleet'))   return 'fleet';
   if (pathname.startsWith('/oee'))     return 'oee';
   if (pathname.startsWith('/audits'))  return 'audits';
@@ -244,13 +249,17 @@ export default function AppLayout() {
       className="hidden md:flex flex-col shrink-0 transition-all duration-200"
       style={{ width: sidebarCollapsed ? 52 : 195, background: theme.sidebar, minHeight: '100vh' }}
     >
-      {/* Logo */}
-      <div style={{
-        display: 'flex', alignItems: 'center', gap: 8,
-        padding: sidebarCollapsed ? '14px 0' : '14px 14px',
-        borderBottom: `1px solid ${theme.sidebarBorder}`,
-        minHeight: 52, justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
-      }}>
+      {/* Logo — click siempre lleva al Panel Global */}
+      <button
+        onClick={() => navigate('/dashboard')}
+        style={{
+          display: 'flex', alignItems: 'center', gap: 8,
+          padding: sidebarCollapsed ? '14px 0' : '14px 14px',
+          borderBottom: `1px solid ${theme.sidebarBorder}`,
+          minHeight: 52, justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
+          background: 'transparent', border: 'none', cursor: 'pointer', width: '100%',
+        }}
+      >
         <div style={{
           width: 26, height: 26, borderRadius: 6, background: theme.accent, flexShrink: 0,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -262,7 +271,7 @@ export default function AppLayout() {
             senz
           </span>
         )}
-      </div>
+      </button>
 
       <ModuleTabs collapsed={sidebarCollapsed} />
 
