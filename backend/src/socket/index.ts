@@ -4,10 +4,13 @@ import jwt from 'jsonwebtoken';
 import { JwtPayload } from '../types';
 
 export function setupSocket(httpServer: HttpServer): SocketServer {
-  const allowedOrigins = (process.env.FRONTEND_URL || 'http://localhost:5173')
-    .split(',').map(s => s.trim());
+  const _frontendUrl = process.env.FRONTEND_URL;
+  const corsOrigin: string | string[] | boolean =
+    !_frontendUrl || _frontendUrl === '*'
+      ? true
+      : _frontendUrl.split(',').map(s => s.trim());
   const io = new SocketServer(httpServer, {
-    cors: { origin: allowedOrigins, methods: ['GET', 'POST'] },
+    cors: { origin: corsOrigin, methods: ['GET', 'POST'] },
   });
 
   io.use((socket, next) => {

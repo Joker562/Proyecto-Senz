@@ -64,9 +64,12 @@ const io = setupSocket(httpServer);
 app.set('io', io);
 initNotifications(io);
 
-const allowedOrigins = (process.env.FRONTEND_URL || 'http://localhost:5173')
-  .split(',').map(s => s.trim());
-app.use(cors({ origin: allowedOrigins }));
+const _frontendUrl = process.env.FRONTEND_URL;
+const corsOrigin: string | string[] | boolean =
+  !_frontendUrl || _frontendUrl === '*'
+    ? true                                          // permite cualquier origen si no se configura
+    : _frontendUrl.split(',').map(s => s.trim());   // lista explícita de orígenes
+app.use(cors({ origin: corsOrigin }));
 app.use(express.json({ limit: '2mb' }));
 app.use('/uploads', express.static(UPLOAD_DIR));
 
