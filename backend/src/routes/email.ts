@@ -1,13 +1,12 @@
 import { Router } from 'express';
-import { authenticate } from '../middleware/auth';
+import { authenticate, authorize } from '../middleware/auth';
 import { sendNotificationEmail } from '../services/email';
 
 const router = Router();
 router.use(authenticate);
 
-// POST /api/email/send — envía un correo de notificación genérico
-// Si no se especifica `to`, usa el email del usuario autenticado (útil para prueba con Resend sin dominio verificado)
-router.post('/send', async (req, res) => {
+// POST /api/email/send — envía un correo de notificación genérico (solo ADMIN/SUPERVISOR)
+router.post('/send', authorize('ADMIN', 'SUPERVISOR'), async (req, res) => {
   const user = (req as any).user;
   const { to: toBody, name, subject, html } = req.body as {
     to?: string; name?: string; subject?: string; html?: string;

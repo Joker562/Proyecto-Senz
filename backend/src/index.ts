@@ -64,7 +64,9 @@ const io = setupSocket(httpServer);
 app.set('io', io);
 initNotifications(io);
 
-app.use(cors({ origin: process.env.FRONTEND_URL || '*' }));
+const allowedOrigins = (process.env.FRONTEND_URL || 'http://localhost:5173')
+  .split(',').map(s => s.trim());
+app.use(cors({ origin: allowedOrigins }));
 app.use(express.json({ limit: '2mb' }));
 app.use('/uploads', express.static(UPLOAD_DIR));
 
@@ -94,7 +96,7 @@ app.use('/api/oee',             oeeRouter);
 app.use('/api/downtime',        downtimeRouter);
 
 app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-  console.error(err);
+  console.error('[Error]', err.message ?? 'Unknown error');
   res.status(500).json({ error: 'Error interno del servidor' });
 });
 

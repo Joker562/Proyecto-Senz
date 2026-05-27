@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { prisma } from '../services/prisma';
-import { authenticate } from '../middleware/auth';
+import { authenticate, authorize } from '../middleware/auth';
 
 const router = Router();
 router.use(authenticate);
@@ -11,7 +11,7 @@ const schema = z.object({
   signerName: z.string().min(2),
 });
 
-router.post('/:workOrderId', async (req: Request, res: Response) => {
+router.post('/:workOrderId', authorize('ADMIN', 'SUPERVISOR'), async (req: Request, res: Response) => {
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 

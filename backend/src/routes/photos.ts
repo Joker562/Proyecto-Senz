@@ -41,6 +41,11 @@ router.delete('/:id', async (req: Request, res: Response) => {
   const photo = await prisma.photo.findUnique({ where: { id: req.params.id } });
   if (!photo) return res.status(404).json({ error: 'Foto no encontrada' });
 
+  const { role, userId } = req.user!;
+  if (role !== 'ADMIN' && role !== 'SUPERVISOR' && photo.uploadedById !== userId) {
+    return res.status(403).json({ error: 'Sin permisos para eliminar esta foto' });
+  }
+
   const filePath = path.join(UPLOAD_DIR, photo.filename);
   if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
 

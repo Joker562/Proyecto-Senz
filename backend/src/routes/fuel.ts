@@ -31,8 +31,6 @@ const CreateFuelLogSchema = z.object({
   station:       z.string().max(120).optional().nullable(),
   invoiceNumber: z.string().max(60).optional().nullable(),
   notes:         z.string().max(500).optional().nullable(),
-  /** En producción debería tomarse de req.user.userId; se acepta en body por compatibilidad */
-  loggedById:    z.string().cuid('loggedById debe ser un CUID válido'),
 });
 
 type CreateFuelLogInput = z.infer<typeof CreateFuelLogSchema>;
@@ -168,6 +166,7 @@ router.post('/', async (req: Request, res: Response) => {
         totalCost,
         kmAtFuel,
         notes:         notesWithAlert,
+        loggedById:    req.user!.userId,
       },
       include: {
         vehicle:  { select: { id: true, code: true, plate: true, brand: true, model: true } },
